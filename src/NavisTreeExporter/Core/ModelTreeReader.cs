@@ -46,13 +46,7 @@ namespace NavisTreeExporter.Core
 
                 foreach (DataProperty property in category.Properties)
                 {
-                    categoryEntry.Properties.Add(new PropertyEntry
-                    {
-                        Name = property.Name,
-                        DisplayName = property.DisplayName,
-                        Value = property.Value?.ToDisplayString(),
-                        DataType = property.Value?.DataType.ToString(),
-                    });
+                    categoryEntry.Properties.Add(ReadProperty(property));
                 }
 
                 node.PropertyCategories.Add(categoryEntry);
@@ -64,6 +58,40 @@ namespace NavisTreeExporter.Core
             }
 
             return node;
+        }
+
+        private static PropertyEntry ReadProperty(DataProperty property)
+        {
+            var entry = new PropertyEntry
+            {
+                Name = property.Name,
+                DisplayName = property.DisplayName,
+            };
+
+            var value = property.Value;
+            if (value == null) return entry;
+
+            try
+            {
+                entry.Value = value.ToDisplayString();
+            }
+            catch (NotSupportedException)
+            {
+                entry.Value = null;
+            }
+
+            try
+            {
+                // VariantData.DataType throws NotSupportedException when the
+                // value only exists as a display string (no typed backing value).
+                entry.DataType = value.IsDisplayString ? "DisplayString" : value.DataType.ToString();
+            }
+            catch (NotSupportedException)
+            {
+                entry.DataType = null;
+            }
+
+            return entry;
         }
     }
 }
