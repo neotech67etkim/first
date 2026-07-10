@@ -110,8 +110,8 @@ dotnet build NavisTreeExporter.sln -c Release `
 성공하면 아래 경로에 결과물이 생성됩니다.
 
 ```
-src\NavisTreeExporter\bin\Release\net48\NavisTreeExporter.dll
-src\NavisTreeExporter\bin\Release\net48\Newtonsoft.Json.dll
+src\NavisTreeExporter\bin\x64\Release\net48\NavisTreeExporter.dll
+src\NavisTreeExporter\bin\x64\Release\net48\Newtonsoft.Json.dll
 ```
 
 이 두 파일이 실제로 Navisworks에 설치할 대상입니다. 설치 방법은

@@ -7,7 +7,7 @@ Navisworks는 시작 시 `Plugins` 폴더 아래의 서브폴더들을 스캔해
 ## 수동 배포
 
 1. [BUILD.md](./BUILD.md)대로 Release 빌드를 생성합니다.
-2. `bin\Release\net48\` 폴더의 다음 파일들을 복사합니다.
+2. `bin\x64\Release\net48\` 폴더의 다음 파일들을 복사합니다.
    - `NavisTreeExporter.dll`
    - `Newtonsoft.Json.dll`
 3. Navisworks Plugins 폴더 아래에 전용 서브폴더를 만들어 붙여넣습니다.
