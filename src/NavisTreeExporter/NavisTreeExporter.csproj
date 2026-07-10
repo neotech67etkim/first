@@ -23,17 +23,14 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Provided by the Navisworks Simulate 2022 install; not redistributed with this add-in. -->
+    <!--
+      Provided by the Navisworks Simulate 2022 install; not redistributed with
+      this add-in. Only Autodesk.Navisworks.Api is referenced because the
+      current code (Core/Export/Plugin) only uses that namespace — the COM
+      interop assemblies aren't needed unless COM-level APIs are added later.
+    -->
     <Reference Include="Autodesk.Navisworks.Api">
       <HintPath>$(NavisworksInstallDir)Autodesk.Navisworks.Api.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="Autodesk.Navisworks.Interop.ComApi">
-      <HintPath>$(NavisworksInstallDir)Autodesk.Navisworks.Interop.ComApi.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="Autodesk.Navisworks.Interop.ComBridge">
-      <HintPath>$(NavisworksInstallDir)Autodesk.Navisworks.Interop.ComBridge.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>
