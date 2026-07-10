@@ -1,0 +1,22 @@
+
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NavisTreeExporter", "src\NavisTreeExporter\NavisTreeExporter.csproj", "{09250FBC-710B-4861-85A7-4B04CBD20320}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Release|x64 = Release|x64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{09250FBC-710B-4861-85A7-4B04CBD20320}.Debug|x64.ActiveCfg = Debug|x64
+		{09250FBC-710B-4861-85A7-4B04CBD20320}.Debug|x64.Build.0 = Debug|x64
+		{09250FBC-710B-4861-85A7-4B04CBD20320}.Release|x64.ActiveCfg = Release|x64
+		{09250FBC-710B-4861-85A7-4B04CBD20320}.Release|x64.Build.0 = Release|x64
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

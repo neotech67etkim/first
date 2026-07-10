@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>NavisTreeExporter</AssemblyName>
+    <RootNamespace>NavisTreeExporter</RootNamespace>
+    <PlatformTarget>x64</PlatformTarget>
+    <LangVersion>latest</LangVersion>
+
+    <!--
+      Path to the Navisworks Manage installation that provides the API
+      assemblies referenced below. Override on the command line or in a
+      NavisTreeExporter.csproj.user file, e.g.:
+        msbuild /p:NavisworksInstallDir="D:\Autodesk\Navisworks Manage 2022\"
+    -->
+    <NavisworksInstallDir Condition="'$(NavisworksInstallDir)' == ''">C:\Program Files\Autodesk\Navisworks Manage 2022\</NavisworksInstallDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Provided by the Navisworks Manage 2022 install; not redistributed with this add-in. -->
+    <Reference Include="Autodesk.Navisworks.Api">
+      <HintPath>$(NavisworksInstallDir)Autodesk.Navisworks.Api.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Autodesk.Navisworks.Interop.ComApi">
+      <HintPath>$(NavisworksInstallDir)Autodesk.Navisworks.Interop.ComApi.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Autodesk.Navisworks.Interop.ComBridge">
+      <HintPath>$(NavisworksInstallDir)Autodesk.Navisworks.Interop.ComBridge.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>
