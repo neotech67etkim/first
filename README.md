@@ -32,7 +32,11 @@ src/NavisTreeExporter/
 
 ## 빌드 & 배포
 
-- [docs/BUILD.md](./docs/BUILD.md) — Windows에서 빌드하는 방법
+가장 빠른 방법: 저장소 루트의 **`build_and_deploy.bat`을 더블클릭**하면
+Release/x64로 빌드한 뒤 Navisworks Plugins 폴더까지 자동으로 복사합니다.
+(dotnet CLI가 PATH에 있어야 함 — Visual Studio 2022 설치 시 기본 포함)
+
+- [docs/BUILD.md](./docs/BUILD.md) — Windows에서 수동으로 빌드하는 방법
 - [docs/DEPLOY.md](./docs/DEPLOY.md) — Navisworks Plugins 폴더에 설치하는 방법
 
 ## 요구 사항
