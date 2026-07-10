@@ -35,6 +35,15 @@ namespace NavisTreeExporter.Plugin
                 return 0;
             }
 
+            var propertyChoice = MessageBox.Show(
+                "속성(Property) 정보도 함께 내보낼까요?" + Environment.NewLine + Environment.NewLine +
+                "예(Y): 계층 구조 + 전체 속성 포함 (느림)" + Environment.NewLine +
+                "아니오(N): 계층 구조만 (빠름)",
+                "Export Selection Tree", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+
+            if (propertyChoice == DialogResult.Cancel) return 0;
+            var includeProperties = propertyChoice == DialogResult.Yes;
+
             using (var folderDialog = new FolderBrowserDialog { Description = "내보낼 폴더를 선택하세요" })
             {
                 if (folderDialog.ShowDialog() != DialogResult.OK) return 0;
@@ -56,7 +65,7 @@ namespace NavisTreeExporter.Plugin
                             },
                             () => progressForm.CancelRequested);
 
-                        var roots = ModelTreeReader.ReadTree(document, progress);
+                        var roots = ModelTreeReader.ReadTree(document, includeProperties, progress);
 
                         progressForm.SetIndeterminate("파일 저장 중...");
                         progressForm.Refresh();
@@ -65,20 +74,26 @@ namespace NavisTreeExporter.Plugin
                         var baseName = BuildBaseFileName(document);
                         var jsonPath = Path.Combine(folderDialog.SelectedPath, baseName + ".json");
                         var itemsCsvPath = Path.Combine(folderDialog.SelectedPath, baseName + "_items.csv");
-                        var propertiesCsvPath = Path.Combine(folderDialog.SelectedPath, baseName + "_properties.csv");
 
                         JsonTreeExporter.Export(roots, jsonPath);
                         CsvTreeExporter.ExportItems(roots, itemsCsvPath);
-                        CsvTreeExporter.ExportProperties(roots, propertiesCsvPath);
+
+                        var resultMessage =
+                            "내보내기 완료:" + Environment.NewLine +
+                            jsonPath + Environment.NewLine +
+                            itemsCsvPath;
+
+                        if (includeProperties)
+                        {
+                            var propertiesCsvPath = Path.Combine(folderDialog.SelectedPath, baseName + "_properties.csv");
+                            CsvTreeExporter.ExportProperties(roots, propertiesCsvPath);
+                            resultMessage += Environment.NewLine + propertiesCsvPath;
+                        }
 
                         progressForm.Close();
 
-                        MessageBox.Show(
-                            "내보내기 완료:" + Environment.NewLine +
-                            jsonPath + Environment.NewLine +
-                            itemsCsvPath + Environment.NewLine +
-                            propertiesCsvPath,
-                            "Export Selection Tree", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        MessageBox.Show(resultMessage, "Export Selection Tree",
+                            MessageBoxButtons.OK, MessageBoxIcon.Information);
                     }
                     catch (OperationCanceledException)
                     {

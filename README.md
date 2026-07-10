@@ -1,8 +1,9 @@
 # NavisTreeExporter
 
 Navisworks Simulate용 애드인. 열려 있는 모델의 **선택 트리(Selection Tree)**를
-계층 구조와 속성(PropertyCategories/Properties)까지 포함해 읽어들여
-**JSON**과 **CSV**로 저장합니다.
+읽어 **JSON**과 **CSV**로 저장합니다. 실행 시 계층 구조만 빠르게 내보낼지,
+속성(PropertyCategories/Properties)까지 포함해서 내보낼지 선택할 수 있습니다
+(속성 포함은 항목당 API 호출이 훨씬 많아 느립니다).
 
 추출한 데이터는 이후 다른 설계 자료(BIM 모델, 물량 리스트 등)와 비교하여
 트리 내 항목들을 식별·매칭하는 후속 작업의 입력으로 사용됩니다.
@@ -28,7 +29,8 @@ src/NavisTreeExporter/
   ClassDisplayName, InstanceGuid, ParentPath, HasGeometry, IsHidden, Depth`
 - **CSV (properties)**: 항목의 속성 1개 = 1행 (long format, 이후 pivot/조인이
   쉽도록). `ItemPath, InstanceGuid, CategoryName, CategoryDisplayName,
-  PropertyName, PropertyDisplayName, Value, DataType`
+  PropertyName, PropertyDisplayName, Value, DataType` — "계층만" 모드에서는
+  생성되지 않습니다.
 
 ## 빌드 & 배포
 
@@ -60,7 +62,8 @@ Windows에서 처음 빌드할 때 오류가 날 수 있습니다. 나머지 코
 
 ## 다음 단계 (제안)
 
-- [ ] 내보내기 옵션 다이얼로그 (JSON/CSV 선택, 속성 포함 여부, 파일명 지정)
+- [x] 속성 포함 여부 선택 (계층만 / 계층+속성)
+- [ ] 더 세밀한 내보내기 옵션 다이얼로그 (JSON/CSV 개별 선택, 파일명 지정)
 - [ ] 현재 선택된 항목만 내보내는 옵션 (전체 트리 대신)
 - [ ] 대용량 모델 대응을 위한 재귀 → 반복(iterative) 순회 전환
 - [ ] 단위 테스트용 Mock/추상화 레이어 (Navisworks API는 직접 단위 테스트 불가)

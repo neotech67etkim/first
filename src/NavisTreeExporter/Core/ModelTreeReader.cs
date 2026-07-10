@@ -11,7 +11,7 @@ namespace NavisTreeExporter.Core
     /// </summary>
     public static class ModelTreeReader
     {
-        public static List<TreeNode> ReadTree(Document document, ExportProgressReporter progress = null)
+        public static List<TreeNode> ReadTree(Document document, bool includeProperties, ExportProgressReporter progress = null)
         {
             if (document == null) throw new ArgumentNullException(nameof(document));
 
@@ -19,12 +19,12 @@ namespace NavisTreeExporter.Core
             foreach (Model model in document.Models)
             {
                 if (model.RootItem == null) continue;
-                roots.Add(BuildNode(model.RootItem, progress));
+                roots.Add(BuildNode(model.RootItem, includeProperties, progress));
             }
             return roots;
         }
 
-        private static TreeNode BuildNode(ModelItem item, ExportProgressReporter progress)
+        private static TreeNode BuildNode(ModelItem item, bool includeProperties, ExportProgressReporter progress)
         {
             var node = new TreeNode
             {
@@ -36,27 +36,34 @@ namespace NavisTreeExporter.Core
                 IsHidden = item.IsHidden,
             };
 
-            foreach (PropertyCategory category in item.PropertyCategories)
+            // Reading PropertyCategories/Properties means a separate API call
+            // per category and per property, so on large models this is by
+            // far the most expensive part of the walk. Skip it entirely when
+            // the caller only needs the hierarchy.
+            if (includeProperties)
             {
-                var categoryEntry = new PropertyCategoryEntry
+                foreach (PropertyCategory category in item.PropertyCategories)
                 {
-                    CategoryName = category.Name,
-                    CategoryDisplayName = category.DisplayName,
-                };
+                    var categoryEntry = new PropertyCategoryEntry
+                    {
+                        CategoryName = category.Name,
+                        CategoryDisplayName = category.DisplayName,
+                    };
 
-                foreach (DataProperty property in category.Properties)
-                {
-                    categoryEntry.Properties.Add(ReadProperty(property));
+                    foreach (DataProperty property in category.Properties)
+                    {
+                        categoryEntry.Properties.Add(ReadProperty(property));
+                    }
+
+                    node.PropertyCategories.Add(categoryEntry);
                 }
-
-                node.PropertyCategories.Add(categoryEntry);
             }
 
             progress?.ReportItem();
 
             foreach (ModelItem child in item.Children)
             {
-                node.Children.Add(BuildNode(child, progress));
+                node.Children.Add(BuildNode(child, includeProperties, progress));
             }
 
             return node;

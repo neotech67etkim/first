@@ -15,7 +15,7 @@ namespace NavisTreeExporter.Core
     {
         private readonly Action<int> _onProgress;
         private readonly Func<bool> _isCancelled;
-        private const int ReportEveryNItems = 10;
+        private const int ReportEveryNItems = 50;
 
         public ExportProgressReporter(Action<int> onProgress, Func<bool> isCancelled)
         {
