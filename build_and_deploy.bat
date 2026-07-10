@@ -40,6 +40,18 @@ if not exist "%OUT_DIR%\NavisTreeExporter.dll" (
     exit /b 1
 )
 
+:check_running
+tasklist /FI "IMAGENAME eq Roamer.exe" 2>nul | find /I "Roamer.exe" >nul
+if not errorlevel 1 (
+    echo.
+    echo [WARNING] Navisworks Simulate 2022 is currently running.
+    echo The previously installed plugin DLL is locked while Navisworks is open,
+    echo so it cannot be overwritten. Please close Navisworks now.
+    echo.
+    pause
+    goto :check_running
+)
+
 echo.
 echo [2/3] Copying to the Navisworks Plugins folder...
 echo   Target: %PLUGIN_DIR%
@@ -61,8 +73,8 @@ exit /b 0
 :copy_failed
 echo.
 echo [ERROR] Failed to copy files to: %PLUGIN_DIR%
-echo Close this window, right-click this .bat file, and choose "Run as administrator", then try again.
-echo (If Navisworks is currently running, close it first - the DLL may be locked.)
+echo Make sure Navisworks Simulate 2022 is fully closed, then run this script again.
+echo If it still fails, right-click this .bat file and choose "Run as administrator".
 echo.
 pause
 exit /b 1
