@@ -39,30 +39,63 @@ namespace NavisTreeExporter.Plugin
             {
                 if (folderDialog.ShowDialog() != DialogResult.OK) return 0;
 
-                try
+                using (var progressForm = new ExportProgressForm())
                 {
-                    var roots = ModelTreeReader.ReadTree(document);
-                    var baseName = BuildBaseFileName(document);
+                    progressForm.Show();
+                    progressForm.SetIndeterminate("모델 크기 확인 중...");
+                    progressForm.Refresh();
+                    Application.DoEvents();
 
-                    var jsonPath = Path.Combine(folderDialog.SelectedPath, baseName + ".json");
-                    var itemsCsvPath = Path.Combine(folderDialog.SelectedPath, baseName + "_items.csv");
-                    var propertiesCsvPath = Path.Combine(folderDialog.SelectedPath, baseName + "_properties.csv");
+                    try
+                    {
+                        var total = ModelTreeReader.CountItems(document);
+                        progressForm.SetTotal(total);
 
-                    JsonTreeExporter.Export(roots, jsonPath);
-                    CsvTreeExporter.ExportItems(roots, itemsCsvPath);
-                    CsvTreeExporter.ExportProperties(roots, propertiesCsvPath);
+                        var progress = new ExportProgressReporter(
+                            total,
+                            (processed, count) =>
+                            {
+                                progressForm.ReportProgress(processed, count);
+                                Application.DoEvents();
+                            },
+                            () => progressForm.CancelRequested);
 
-                    MessageBox.Show(
-                        "내보내기 완료:" + Environment.NewLine +
-                        jsonPath + Environment.NewLine +
-                        itemsCsvPath + Environment.NewLine +
-                        propertiesCsvPath,
-                        "Export Selection Tree", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show("내보내기 중 오류가 발생했습니다:" + Environment.NewLine + ex.Message,
-                        "Export Selection Tree", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        var roots = ModelTreeReader.ReadTree(document, progress);
+
+                        progressForm.SetIndeterminate("파일 저장 중...");
+                        progressForm.Refresh();
+                        Application.DoEvents();
+
+                        var baseName = BuildBaseFileName(document);
+                        var jsonPath = Path.Combine(folderDialog.SelectedPath, baseName + ".json");
+                        var itemsCsvPath = Path.Combine(folderDialog.SelectedPath, baseName + "_items.csv");
+                        var propertiesCsvPath = Path.Combine(folderDialog.SelectedPath, baseName + "_properties.csv");
+
+                        JsonTreeExporter.Export(roots, jsonPath);
+                        CsvTreeExporter.ExportItems(roots, itemsCsvPath);
+                        CsvTreeExporter.ExportProperties(roots, propertiesCsvPath);
+
+                        progressForm.Close();
+
+                        MessageBox.Show(
+                            "내보내기 완료:" + Environment.NewLine +
+                            jsonPath + Environment.NewLine +
+                            itemsCsvPath + Environment.NewLine +
+                            propertiesCsvPath,
+                            "Export Selection Tree", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        progressForm.Close();
+                        MessageBox.Show("내보내기가 취소되었습니다.", "Export Selection Tree",
+                            MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }
+                    catch (Exception ex)
+                    {
+                        progressForm.Close();
+                        MessageBox.Show("내보내기 중 오류가 발생했습니다:" + Environment.NewLine + ex.Message,
+                            "Export Selection Tree", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
                 }
             }
 
