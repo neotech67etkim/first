@@ -44,7 +44,7 @@ namespace NavisTreeExporter.Plugin
                     progressForm.Show();
                     progressForm.SetIndeterminate("모델 크기 확인 중...");
                     progressForm.Refresh();
-                    Application.DoEvents();
+                    System.Windows.Forms.Application.DoEvents();
 
                     try
                     {
@@ -56,7 +56,7 @@ namespace NavisTreeExporter.Plugin
                             (processed, count) =>
                             {
                                 progressForm.ReportProgress(processed, count);
-                                Application.DoEvents();
+                                System.Windows.Forms.Application.DoEvents();
                             },
                             () => progressForm.CancelRequested);
 
@@ -64,7 +64,7 @@ namespace NavisTreeExporter.Plugin
 
                         progressForm.SetIndeterminate("파일 저장 중...");
                         progressForm.Refresh();
-                        Application.DoEvents();
+                        System.Windows.Forms.Application.DoEvents();
 
                         var baseName = BuildBaseFileName(document);
                         var jsonPath = Path.Combine(folderDialog.SelectedPath, baseName + ".json");
