@@ -1,6 +1,6 @@
 # NavisTreeExporter
 
-Navisworks Manage용 애드인. 열려 있는 모델의 **선택 트리(Selection Tree)**를
+Navisworks Simulate용 애드인. 열려 있는 모델의 **선택 트리(Selection Tree)**를
 계층 구조와 속성(PropertyCategories/Properties)까지 포함해 읽어들여
 **JSON**과 **CSV**로 저장합니다.
 
@@ -37,7 +37,7 @@ src/NavisTreeExporter/
 
 ## 요구 사항
 
-- Navisworks Manage 2022 (.NET Framework 4.8)
+- Navisworks Simulate 2022 (.NET Framework 4.8)
 - Windows + Visual Studio 2022 (빌드 시에만 필요)
 
 ## 알려진 제약사항
@@ -48,7 +48,7 @@ src/NavisTreeExporter/
 특성만으로 리본을 구성하는 방식인데, 정확한 속성명·연결 방식이 Navisworks
 SDK 버전에 따라 다를 수 있습니다. Visual Studio에서 Navisworks API 참조를
 추가한 뒤 IntelliSense/빌드 오류를 보면서, 필요하면 Navisworks SDK에 포함된
-Ribbon 샘플(보통 `...Navisworks Manage 2022 API\SDK\...\Plugins\Ribbon\`
+Ribbon 샘플(보통 `...Navisworks Simulate 2022 API\SDK\...\Plugins\Ribbon\`
 경로)과 대조해 속성을 맞춰야 할 수 있습니다. 나머지 코드(`Core`, `Export`
 네임스페이스)는 표준 `Autodesk.Navisworks.Api`의 `ModelItem`/`PropertyCategory`
 /`DataProperty` 멤버만 사용하므로 상대적으로 안정적입니다.

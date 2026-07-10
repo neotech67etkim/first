@@ -1,6 +1,6 @@
 # 빌드 방법 (상세)
 
-이 애드인은 **Windows + Navisworks Manage 2022 (.NET Framework 4.8)** 환경에서만
+이 애드인은 **Windows + Navisworks Simulate 2022 (.NET Framework 4.8)** 환경에서만
 빌드할 수 있습니다. Navisworks API DLL은 Autodesk SDK 라이선스 정책상
 저장소에 포함하지 않으므로, 로컬에 설치된 Navisworks의 DLL을 참조합니다.
 (Linux/Mac에서는 빌드가 불가능합니다.)
@@ -10,7 +10,7 @@
 | 항목 | 확인 방법 |
 |---|---|
 | Windows 10/11 | - |
-| Navisworks Manage 2022 설치됨 | `C:\Program Files\Autodesk\Navisworks Manage 2022\Roamer.exe` 존재 여부 확인 |
+| Navisworks Simulate 2022 설치됨 | `C:\Program Files\Autodesk\Navisworks Simulate 2022\Roamer.exe` 존재 여부 확인 |
 | Visual Studio 2022 (Community 이상) | ".NET desktop development" 워크로드 설치 필수 |
 | .NET Framework 4.8 Developer Pack | VS Installer의 "개별 구성 요소" 탭에서 "NET Framework 4.8 SDK / Targeting Pack" 체크 |
 | 인터넷 연결 | NuGet에서 `Newtonsoft.Json` 패키지를 받아야 함 |
@@ -41,15 +41,15 @@ git pull
 프로젝트는 기본적으로 다음 경로를 참조합니다.
 
 ```
-C:\Program Files\Autodesk\Navisworks Manage 2022\
+C:\Program Files\Autodesk\Navisworks Simulate 2022\
 ```
 
 아래 3개 파일이 그 경로에 있는지 먼저 확인하세요.
 
 ```powershell
-dir "C:\Program Files\Autodesk\Navisworks Manage 2022\Autodesk.Navisworks.Api.dll"
-dir "C:\Program Files\Autodesk\Navisworks Manage 2022\Autodesk.Navisworks.Interop.ComApi.dll"
-dir "C:\Program Files\Autodesk\Navisworks Manage 2022\Autodesk.Navisworks.Interop.ComBridge.dll"
+dir "C:\Program Files\Autodesk\Navisworks Simulate 2022\Autodesk.Navisworks.Api.dll"
+dir "C:\Program Files\Autodesk\Navisworks Simulate 2022\Autodesk.Navisworks.Interop.ComApi.dll"
+dir "C:\Program Files\Autodesk\Navisworks Simulate 2022\Autodesk.Navisworks.Interop.ComBridge.dll"
 ```
 
 설치 경로가 다르다면(예: D 드라이브), 아래 3-B 방법으로 경로를 지정해야 합니다.
@@ -74,7 +74,7 @@ dir "C:\Program Files\Autodesk\Navisworks Manage 2022\Autodesk.Navisworks.Intero
 본인 설치 경로로 바꿉니다.
 
 ```xml
-<NavisworksInstallDir Condition="'$(NavisworksInstallDir)' == ''">D:\Autodesk\Navisworks Manage 2022\</NavisworksInstallDir>
+<NavisworksInstallDir Condition="'$(NavisworksInstallDir)' == ''">D:\Autodesk\Navisworks Simulate 2022\</NavisworksInstallDir>
 ```
 
 끝에 `\`를 꼭 붙여야 합니다. 저장 후 Visual Studio에서 다시 빌드하면 됩니다.
@@ -98,7 +98,7 @@ dotnet build NavisTreeExporter.sln -c Release
 
 ```powershell
 dotnet build NavisTreeExporter.sln -c Release `
-  /p:NavisworksInstallDir="D:\Autodesk\Navisworks Manage 2022\"
+  /p:NavisworksInstallDir="D:\Autodesk\Navisworks Simulate 2022\"
 ```
 
 (CMD에서는 줄바꿈에 `^`, PowerShell에서는 백틱 `` ` `` 사용. 한 줄로 써도 됩니다.)

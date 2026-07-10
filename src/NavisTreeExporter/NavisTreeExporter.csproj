@@ -9,12 +9,12 @@
     <LangVersion>latest</LangVersion>
 
     <!--
-      Path to the Navisworks Manage installation that provides the API
+      Path to the Navisworks Simulate installation that provides the API
       assemblies referenced below. Override on the command line or in a
       NavisTreeExporter.csproj.user file, e.g.:
-        msbuild /p:NavisworksInstallDir="D:\Autodesk\Navisworks Manage 2022\"
+        msbuild /p:NavisworksInstallDir="D:\Autodesk\Navisworks Simulate 2022\"
     -->
-    <NavisworksInstallDir Condition="'$(NavisworksInstallDir)' == ''">C:\Program Files\Autodesk\Navisworks Manage 2022\</NavisworksInstallDir>
+    <NavisworksInstallDir Condition="'$(NavisworksInstallDir)' == ''">C:\Program Files\Autodesk\Navisworks Simulate 2022\</NavisworksInstallDir>
   </PropertyGroup>
 
   <ItemGroup>
@@ -22,7 +22,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Provided by the Navisworks Manage 2022 install; not redistributed with this add-in. -->
+    <!-- Provided by the Navisworks Simulate 2022 install; not redistributed with this add-in. -->
     <Reference Include="Autodesk.Navisworks.Api">
       <HintPath>$(NavisworksInstallDir)Autodesk.Navisworks.Api.dll</HintPath>
       <Private>false</Private>

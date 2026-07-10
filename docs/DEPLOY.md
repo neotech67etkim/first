@@ -13,7 +13,7 @@ Navisworks는 시작 시 `Plugins` 폴더 아래의 서브폴더들을 스캔해
 3. Navisworks Plugins 폴더 아래에 전용 서브폴더를 만들어 붙여넣습니다.
 
    ```
-   C:\ProgramData\Autodesk\Navisworks Manage 2022\Plugins\NavisTreeExporter\
+   C:\ProgramData\Autodesk\Navisworks Simulate 2022\Plugins\NavisTreeExporter\
    ```
 
 4. Navisworks를 (다시) 실행하면 리본에 **Tree Export** 탭 > **Export Tree**
