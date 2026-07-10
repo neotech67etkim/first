@@ -11,18 +11,6 @@ namespace NavisTreeExporter.Core
     /// </summary>
     public static class ModelTreeReader
     {
-        public static int CountItems(Document document)
-        {
-            if (document == null) throw new ArgumentNullException(nameof(document));
-
-            var count = 0;
-            foreach (Model model in document.Models)
-            {
-                if (model.RootItem != null) count += CountNode(model.RootItem);
-            }
-            return count;
-        }
-
         public static List<TreeNode> ReadTree(Document document, ExportProgressReporter progress = null)
         {
             if (document == null) throw new ArgumentNullException(nameof(document));
@@ -34,13 +22,6 @@ namespace NavisTreeExporter.Core
                 roots.Add(BuildNode(model.RootItem, progress));
             }
             return roots;
-        }
-
-        private static int CountNode(ModelItem item)
-        {
-            var count = 1;
-            foreach (ModelItem child in item.Children) count += CountNode(child);
-            return count;
         }
 
         private static TreeNode BuildNode(ModelItem item, ExportProgressReporter progress)

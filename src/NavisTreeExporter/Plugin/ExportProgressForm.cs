@@ -1,4 +1,3 @@
-using System;
 using System.Windows.Forms;
 
 namespace NavisTreeExporter.Plugin
@@ -63,27 +62,9 @@ namespace NavisTreeExporter.Plugin
             Controls.Add(_cancelButton);
         }
 
-        public void SetTotal(int total)
+        public void ReportProgress(int processed)
         {
-            if (total > 0)
-            {
-                _progressBar.Style = ProgressBarStyle.Continuous;
-                _progressBar.Minimum = 0;
-                _progressBar.Maximum = total;
-                _progressBar.Value = 0;
-            }
-        }
-
-        public void ReportProgress(int processed, int total)
-        {
-            _statusLabel.Text = total > 0
-                ? string.Format("선택 트리 읽는 중... ({0:N0} / {1:N0})", processed, total)
-                : string.Format("선택 트리 읽는 중... ({0:N0})", processed);
-
-            if (total > 0)
-            {
-                _progressBar.Value = Math.Min(processed, total);
-            }
+            _statusLabel.Text = string.Format("선택 트리 읽는 중... (처리한 항목: {0:N0}개)", processed);
         }
 
         public void SetIndeterminate(string message)

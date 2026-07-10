@@ -42,20 +42,16 @@ namespace NavisTreeExporter.Plugin
                 using (var progressForm = new ExportProgressForm())
                 {
                     progressForm.Show();
-                    progressForm.SetIndeterminate("모델 크기 확인 중...");
+                    progressForm.SetIndeterminate("선택 트리 읽는 중...");
                     progressForm.Refresh();
                     System.Windows.Forms.Application.DoEvents();
 
                     try
                     {
-                        var total = ModelTreeReader.CountItems(document);
-                        progressForm.SetTotal(total);
-
                         var progress = new ExportProgressReporter(
-                            total,
-                            (processed, count) =>
+                            processed =>
                             {
-                                progressForm.ReportProgress(processed, count);
+                                progressForm.ReportProgress(processed);
                                 System.Windows.Forms.Application.DoEvents();
                             },
                             () => progressForm.CancelRequested);
