@@ -9,29 +9,23 @@ using NavisTreeExporter.Export;
 namespace NavisTreeExporter.Plugin
 {
     /// <summary>
-    /// Ribbon command that reads the selection tree of the active document
-    /// and writes it out as JSON + CSV for later comparison against other
-    /// design data.
+    /// Reads the selection tree of the active document and writes it out as
+    /// JSON + CSV for later comparison against other design data.
+    ///
+    /// Registered as an AddInPlugin, so Navisworks places a button for it
+    /// under the ribbon's "Add-ins" tab automatically — no custom ribbon
+    /// tab/group layout is required.
     ///
     /// Vendor id "NTE" is a placeholder — replace it with your own
     /// registered Autodesk vendor code before distributing this add-in.
-    ///
-    /// NOTE: the Ribbon-related attributes below were written without access
-    /// to the Navisworks SDK (no compiler available in this environment).
-    /// Verify the exact attribute properties against the Ribbon sample that
-    /// ships with the Navisworks SDK for your version before relying on this.
     /// </summary>
     [Plugin("NavisTreeExporter.ExportTree", "NTE",
         DisplayName = "Export Selection Tree",
         ToolTip = "Export the selection tree (hierarchy + properties) to JSON and CSV")]
-    [RibbonTab("NavisTreeExporter.RibbonTab", DisplayName = "Tree Export")]
-    [RibbonGroup("NavisTreeExporter.RibbonGroup", DisplayName = "Export")]
-    [Command("NavisTreeExporter.ExportTree.Command",
-        DisplayName = "Export Tree",
-        ToolTip = "Export the current selection tree to JSON/CSV")]
-    public class ExportTreeAddin : CommandHandlerPlugin
+    [AddInPlugin(AddInLocation.AddIn)]
+    public class ExportTreeAddin : AddInPlugin
     {
-        public override int ExecuteCommand(string name, params string[] parameters)
+        public override int Execute(params string[] parameters)
         {
             var document = Autodesk.Navisworks.Api.Application.ActiveDocument;
             if (document == null)
@@ -73,11 +67,6 @@ namespace NavisTreeExporter.Plugin
             }
 
             return 0;
-        }
-
-        public override CommandState CanExecuteCommand(string name)
-        {
-            return new CommandState(Autodesk.Navisworks.Api.Application.ActiveDocument != null);
         }
 
         private static string BuildBaseFileName(Document document)

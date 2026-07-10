@@ -18,7 +18,7 @@ src/NavisTreeExporter/
     JsonTreeExporter.cs   전체 트리(JSON, 중첩 구조)
     CsvTreeExporter.cs    items.csv(계층) + properties.csv(속성, long format)
   Plugin/
-    ExportTreeAddin.cs    리본 버튼 커맨드 (Tree Export > Export Tree)
+    ExportTreeAddin.cs    AddInPlugin (Add-ins 탭 > Export Selection Tree 버튼)
 ```
 
 ## 출력 형식
@@ -43,15 +43,16 @@ src/NavisTreeExporter/
 ## 알려진 제약사항
 
 이 코드는 Navisworks SDK/API DLL이 없는 환경(Linux 컨테이너)에서 작성되어
-**실제 컴파일로 검증하지 못했습니다.** 특히 `Plugin/ExportTreeAddin.cs`의
-리본 버튼 관련 특성(`[RibbonTab]`, `[RibbonGroup]`, `[Command]`)은 XAML 없이
-특성만으로 리본을 구성하는 방식인데, 정확한 속성명·연결 방식이 Navisworks
-SDK 버전에 따라 다를 수 있습니다. Visual Studio에서 Navisworks API 참조를
-추가한 뒤 IntelliSense/빌드 오류를 보면서, 필요하면 Navisworks SDK에 포함된
-Ribbon 샘플(보통 `...Navisworks Simulate 2022 API\SDK\...\Plugins\Ribbon\`
-경로)과 대조해 속성을 맞춰야 할 수 있습니다. 나머지 코드(`Core`, `Export`
-네임스페이스)는 표준 `Autodesk.Navisworks.Api`의 `ModelItem`/`PropertyCategory`
-/`DataProperty` 멤버만 사용하므로 상대적으로 안정적입니다.
+**실제 컴파일로 완전히 검증하지 못했습니다.** 초기 버전은 커스텀 리본
+탭(`[RibbonTab]`/`[RibbonGroup]`)으로 구현했으나 `RibbonGroupAttribute`가
+실제 API에 없어 컴파일 오류가 발생했고, 이를 확인 후 훨씬 표준적인
+`AddInPlugin` 패턴(Add-ins 탭에 버튼 자동 생성)으로 교체했습니다.
+`AddInPlugin`/`[Plugin]`/`[AddInPlugin(AddInLocation.AddIn)]`은 Navisworks
+SDK 샘플 전반에서 쓰이는 안정적인 조합이라 신뢰도가 더 높지만, 여전히
+Windows에서 처음 빌드할 때 오류가 날 수 있습니다. 나머지 코드(`Core`,
+`Export` 네임스페이스)는 표준 `Autodesk.Navisworks.Api`의
+`ModelItem`/`PropertyCategory`/`DataProperty` 멤버만 사용하므로 상대적으로
+안정적입니다.
 
 ## 다음 단계 (제안)
 

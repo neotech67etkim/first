@@ -16,13 +16,13 @@ Navisworks는 시작 시 `Plugins` 폴더 아래의 서브폴더들을 스캔해
    C:\ProgramData\Autodesk\Navisworks Simulate 2022\Plugins\NavisTreeExporter\
    ```
 
-4. Navisworks를 (다시) 실행하면 리본에 **Tree Export** 탭 > **Export Tree**
-   버튼이 나타납니다.
+4. Navisworks를 (다시) 실행하면 리본의 **Add-ins** 탭 아래 **Export Selection
+   Tree** 버튼이 나타납니다.
 
 ## 사용법
 
 1. NWD/NWC/모델 파일을 Navisworks에서 엽니다.
-2. **Tree Export > Export Tree** 버튼을 클릭합니다.
+2. **Add-ins** 탭의 **Export Selection Tree** 버튼을 클릭합니다.
 3. 저장할 폴더를 선택합니다.
 4. 다음 3개 파일이 생성됩니다.
    - `<문서명>_<타임스탬프>.json` — 선택 트리 전체(계층 구조 + 속성)
