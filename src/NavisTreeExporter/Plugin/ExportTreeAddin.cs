@@ -104,7 +104,10 @@ namespace NavisTreeExporter.Plugin
                     catch (Exception ex)
                     {
                         progressForm.Close();
-                        MessageBox.Show("내보내기 중 오류가 발생했습니다:" + Environment.NewLine + ex.Message,
+                        MessageBox.Show(
+                            "내보내기 중 오류가 발생했습니다:" + Environment.NewLine +
+                            ex.GetType().Name + ": " + ex.Message + Environment.NewLine + Environment.NewLine +
+                            ex.StackTrace,
                             "Export Selection Tree", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     }
                 }

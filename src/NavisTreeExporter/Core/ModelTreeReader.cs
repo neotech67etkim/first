@@ -19,8 +19,21 @@ namespace NavisTreeExporter.Core
             var roots = new List<TreeNode>();
             foreach (Model model in document.Models)
             {
-                if (model.RootItem == null) continue;
-                roots.Add(BuildNode(model.RootItem, includeProperties, progress));
+                ModelItem rootItem;
+                try
+                {
+                    rootItem = model.RootItem;
+                }
+                catch (Exception)
+                {
+                    // A federated model can reference a sub-model that's
+                    // broken or failed to load; skip it instead of aborting
+                    // the whole export.
+                    continue;
+                }
+
+                if (rootItem == null) continue;
+                roots.Add(BuildNode(rootItem, includeProperties, progress));
             }
             return roots;
         }
