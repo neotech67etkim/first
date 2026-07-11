@@ -36,6 +36,7 @@ src/NavisTreeExporter/
     ExportProgressReporter.cs    진행률 콜백 + 취소 체크
     FileNameSanitizer.cs         파일명으로 못 쓰는 문자 치환 (공용)
     SavedViewpointCollector.cs   Document.SavedViewpoints 재귀 순회
+    AutoExportSettings.cs        Export Viewpoint Images 자동 모드 환경변수 설정
   Export/
     TreeExportWriter.cs          트리를 한 번만 순회하며 JSON/CSV를 동시에
                                   파일로 스트리밍 (트리 전체를 메모리에
@@ -95,6 +96,50 @@ API가 한글 Windows에서 로컬라이즈 라벨을 깨진 인코딩(UTF-8 →
 현재 방식(좌표만 읽어서 캡처 후 크롭)으로 정착했습니다. 실제 모델로 정상
 동작 확인 완료.
 
+### 자동 실행(무인 배치) 모드
+
+매일 새로 갱신되는 NWD 파일을 사람 없이 자동으로 처리하기 위한 모드입니다.
+**이미지 생성까지만** 담당하고, 생성된 이미지를 서버에 올리는 작업은 별도
+스크립트/프로세스가 맡는 구조로 분리되어 있습니다.
+
+Navisworks를 실행하는 프로세스(예: 작업 스케줄러가 띄우는 스크립트)가 아래
+환경 변수를 설정한 뒤 파일을 열면, 플러그인이 버튼 클릭 없이 자동으로
+동작합니다.
+
+| 환경 변수 | 필수 | 설명 |
+|---|---|---|
+| `NAVIS_AUTO_EXPORT_IMAGES` | 예 | `1`이어야 자동 모드가 켜짐 |
+| `NAVIS_AUTO_OUTPUT_DIR` | 예 | 이미지를 저장할 상위 폴더 |
+| `NAVIS_AUTO_WAIT_SECONDS` | 아니오 | 관측점 이동 후 캡처까지 대기 시간(초). 기본 8초 |
+
+동작 방식:
+
+1. 플러그인 로드 시(`Load()`) 자동 모드 환경 변수가 있으면 1초 간격으로
+   문서가 열렸는지 폴링 시작 (최대 10분 대기, 그 안에 안 열리면 포기하고
+   종료).
+2. 문서가 열리면 저장된 관측점을 모두 순회하며, 사람이 누르는 **캡처**
+   버튼 대신 **관측점 이동 후 고정 대기시간**만큼 기다렸다가 캡처합니다.
+   (대화상자를 띄우면 아무도 클릭할 사람이 없어 영원히 멈추므로, 자동
+   모드에서는 MessageBox를 전혀 띄우지 않습니다.)
+3. `NAVIS_AUTO_OUTPUT_DIR\<파일명>_<타임스탬프>\` 폴더를 만들어 그 안에
+   PNG들과 `_export_log.txt`(진행 로그)를 저장하고, 모두 끝나면
+   `_COMPLETE.txt` 마커 파일을 씁니다 — 업로드 스크립트는 이 마커가 있는
+   폴더만 골라서 올리면 아직 다 안 끝난 폴더를 건드리는 일을 피할 수
+   있습니다.
+4. 끝나면(성공/실패 상관없이) 프로세스가 스스로 종료됩니다 — 작업
+   스케줄러 작업이 정상적으로 마무리됩니다.
+
+Windows 작업 스케줄러에 등록해서 매일 실행하려면
+[`tools/Run-DailyViewpointExport.ps1`](./tools/Run-DailyViewpointExport.ps1)를
+사용하세요. 지정한 폴더에서 가장 최근에 수정된 `*.nwd` 파일을 찾아
+Navisworks를 실행하고, 위 환경 변수를 설정해준 뒤 종료를 기다립니다
+(파일 상단 주석에 `schtasks` 등록 예시 포함).
+
+이 자동 모드는 Windows 환경에서 아직 실제로 컴파일·실행해보지 못한
+부분입니다(`Load()`/`Unload()` 오버라이드, `document.Models.Count`로 로딩
+여부를 판단하는 방식, `document.CurrentFileName` 등) — 지금까지처럼 실제
+빌드 오류를 보면서 맞춰나가야 할 수 있습니다.
+
 ## 빌드 & 배포
 
 가장 빠른 방법: 저장소 루트의 **`build_and_deploy.bat`을 더블클릭**하면
@@ -130,6 +175,8 @@ Release/x64로 빌드한 뒤 Navisworks Plugins 폴더까지 자동으로 복사
 - [x] 로컬라이즈 라벨 인코딩(mojibake) 자동 복구
 - [x] Export Viewpoint Images 플러그인 (저장된 관측점 스크린샷 일괄 저장,
       실제 모델로 빌드·실행 검증 완료)
+- [ ] Export Viewpoint Images 자동(무인) 모드 — 매일 최신 NWD를 찾아 실행,
+      고정 대기시간으로 캡처, 서버 업로드는 별도 스크립트 (컴파일/실행 미검증)
 - [ ] 초대형 모델(수천만 항목, 속성 포함)의 결과 파일 자체가 수 GB로 커지는
       문제 — 압축 저장(.gz), 필요한 속성만 필터링해서 내보내기, JSON 생략(CSV만)
       등의 옵션 중 방향 결정 필요

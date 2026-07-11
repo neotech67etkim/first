@@ -30,6 +30,18 @@ namespace NavisTreeExporter.Plugin
     /// (Document.CurrentViewpoint.CopyFrom) is unverified against the real
     /// Navisworks SDK - see SavedViewpointCollector for the same caveat on
     /// the tree-walking side.
+    ///
+    /// Also supports an unattended "auto mode" for daily scheduled runs
+    /// (see AutoExportSettings): when NAVIS_AUTO_EXPORT_IMAGES=1 is set in
+    /// the environment before Navisworks starts (e.g. by a scheduled-task
+    /// script that also passes a file to open on the command line), Load()
+    /// starts polling for a document to finish opening and then runs the
+    /// whole export with no dialogs - a fixed wait per viewpoint instead of
+    /// the interactive Capture prompt, log files instead of MessageBox, and
+    /// the process exits itself when done so the scheduled task completes.
+    /// The Load()/Unload() override names and the "is a document loaded"
+    /// check (document.Models.Count) are unverified against the real SDK,
+    /// same caveat as the rest of this file.
     /// </summary>
     [Plugin("NavisTreeExporter.ExportViewpointImages", "NTE",
         DisplayName = "Export Viewpoint Images",
@@ -37,6 +49,12 @@ namespace NavisTreeExporter.Plugin
     [AddInPlugin(AddInLocation.AddIn)]
     public class ExportViewpointImagesAddin : AddInPlugin
     {
+        private const int AutoModeTimeoutMinutes = 10;
+
+        private System.Windows.Forms.Timer _autoTimer;
+        private AutoExportSettings _autoSettings;
+        private DateTime _autoStartedAtUtc;
+
         [DllImport("user32.dll")]
         private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
@@ -69,6 +87,214 @@ namespace NavisTreeExporter.Plugin
             public int Top;
             public int Right;
             public int Bottom;
+        }
+
+        /// <summary>
+        /// Called once when Navisworks loads the plugin. If auto mode is
+        /// requested via environment variables, starts polling for a
+        /// document to open so the export can run unattended - otherwise a
+        /// no-op, leaving the normal ribbon-button behavior untouched.
+        /// </summary>
+        public override void Load()
+        {
+            var settings = AutoExportSettings.FromEnvironment();
+            if (settings == null) return;
+
+            _autoSettings = settings;
+            _autoStartedAtUtc = DateTime.UtcNow;
+            _autoTimer = new System.Windows.Forms.Timer { Interval = 1000 };
+            _autoTimer.Tick += AutoTimer_Tick;
+            _autoTimer.Start();
+        }
+
+        public override void Unload()
+        {
+            _autoTimer?.Stop();
+            _autoTimer?.Dispose();
+            _autoTimer = null;
+        }
+
+        private void AutoTimer_Tick(object sender, EventArgs e)
+        {
+            if ((DateTime.UtcNow - _autoStartedAtUtc).TotalMinutes > AutoModeTimeoutMinutes)
+            {
+                _autoTimer.Stop();
+                WriteTopLevelAutoLog(_autoSettings, "No document finished opening within " +
+                    AutoModeTimeoutMinutes + " minutes - giving up.");
+                Environment.Exit(1);
+                return;
+            }
+
+            Document document;
+            try
+            {
+                document = Autodesk.Navisworks.Api.Application.ActiveDocument;
+            }
+            catch (Exception)
+            {
+                return;
+            }
+
+            if (document == null) return;
+
+            bool hasModel;
+            try
+            {
+                hasModel = document.Models.Count > 0;
+            }
+            catch (Exception)
+            {
+                hasModel = false;
+            }
+
+            if (!hasModel) return;
+
+            _autoTimer.Stop();
+            RunAutoExport(document, _autoSettings);
+        }
+
+        /// <summary>
+        /// Unattended export: fixed wait per viewpoint instead of the
+        /// Capture prompt, no MessageBox anywhere (nobody's watching), and
+        /// the process exits itself when finished so a scheduled task that
+        /// launched Navisworks headlessly-but-visibly completes cleanly.
+        /// Writes a log + a _COMPLETE.txt marker into the output subfolder
+        /// so a separate upload script can tell a run finished successfully
+        /// before touching the files.
+        /// </summary>
+        private static void RunAutoExport(Document document, AutoExportSettings settings)
+        {
+            var log = new List<string>();
+            var savedCount = 0;
+            var totalCount = 0;
+            string subfolder = null;
+
+            try
+            {
+                var viewpoints = SavedViewpointCollector.Collect(document);
+                totalCount = viewpoints.Count;
+                log.Add($"[{DateTime.Now:O}] Found {totalCount} saved viewpoint(s).");
+
+                subfolder = Path.Combine(settings.OutputDir, BuildRunFolderName(document));
+                Directory.CreateDirectory(subfolder);
+
+                var mainHandle = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
+                if (mainHandle == IntPtr.Zero)
+                {
+                    log.Add("Could not find the Navisworks main window handle - aborting.");
+                }
+                else
+                {
+                    var viewportRect = ComputeViewportRect(mainHandle);
+                    var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                    for (var i = 0; i < viewpoints.Count; i++)
+                    {
+                        var (path, viewpoint) = viewpoints[i];
+
+                        try
+                        {
+                            document.CurrentViewpoint.CopyFrom(viewpoint.Viewpoint);
+                        }
+                        catch (Exception ex)
+                        {
+                            log.Add($"[skip] {path}: failed to apply viewpoint ({ex.Message})");
+                            continue;
+                        }
+
+                        System.Windows.Forms.Application.DoEvents();
+                        System.Threading.Thread.Sleep(settings.WaitSeconds * 1000);
+                        System.Windows.Forms.Application.DoEvents();
+
+                        var fileName = FileNameSanitizer.Sanitize(path, "Viewpoint" + i);
+                        var uniqueFileName = fileName;
+                        var suffix = 1;
+                        while (!usedNames.Add(uniqueFileName))
+                        {
+                            uniqueFileName = fileName + "_" + suffix;
+                            suffix++;
+                        }
+
+                        var imagePath = Path.Combine(subfolder, uniqueFileName + ".png");
+                        if (CaptureAndCropToViewport(mainHandle, viewportRect, imagePath))
+                        {
+                            savedCount++;
+                            log.Add($"[ok] {path} -> {uniqueFileName}.png");
+                        }
+                        else
+                        {
+                            log.Add($"[fail] {path}: capture failed");
+                        }
+                    }
+                }
+
+                log.Add($"[{DateTime.Now:O}] Done: {savedCount} / {totalCount} saved.");
+                File.WriteAllLines(Path.Combine(subfolder, "_export_log.txt"), log);
+                File.WriteAllText(Path.Combine(subfolder, "_COMPLETE.txt"),
+                    $"saved={savedCount}{Environment.NewLine}total={totalCount}{Environment.NewLine}finishedAt={DateTime.Now:O}");
+            }
+            catch (Exception ex)
+            {
+                log.Add($"[{DateTime.Now:O}] FAILED: {ex.GetType().Name}: {ex.Message}");
+                log.Add(ex.StackTrace);
+                try
+                {
+                    if (subfolder != null)
+                    {
+                        Directory.CreateDirectory(subfolder);
+                        File.WriteAllLines(Path.Combine(subfolder, "_export_log.txt"), log);
+                    }
+                    else
+                    {
+                        WriteTopLevelAutoLog(settings, string.Join(Environment.NewLine, log));
+                    }
+                }
+                catch (Exception)
+                {
+                    // Best-effort logging only - don't let a logging failure
+                    // stop the process from exiting.
+                }
+            }
+            finally
+            {
+                Environment.Exit(0);
+            }
+        }
+
+        private static string BuildRunFolderName(Document document)
+        {
+            string baseName;
+            try
+            {
+                baseName = Path.GetFileNameWithoutExtension(document.CurrentFileName);
+            }
+            catch (Exception)
+            {
+                baseName = null;
+            }
+
+            if (string.IsNullOrWhiteSpace(baseName))
+            {
+                baseName = "Model";
+            }
+
+            var sanitized = FileNameSanitizer.Sanitize(baseName, "Model");
+            return sanitized + "_" + DateTime.Now.ToString("yyyyMMdd_HHmmss");
+        }
+
+        private static void WriteTopLevelAutoLog(AutoExportSettings settings, string message)
+        {
+            try
+            {
+                Directory.CreateDirectory(settings.OutputDir);
+                File.AppendAllText(
+                    Path.Combine(settings.OutputDir, "_auto_export_errors.log"),
+                    $"[{DateTime.Now:O}] {message}{Environment.NewLine}");
+            }
+            catch (Exception)
+            {
+                // Nothing more we can do - there's no user to show a dialog to.
+            }
         }
 
         public override int Execute(params string[] parameters)
@@ -117,11 +343,7 @@ namespace NavisTreeExporter.Plugin
                 // visible leaf window, then narrow it away from any docked
                 // panel that overlaps it horizontally.
                 var mainHandle = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
-                RECT? viewportRect = mainHandle != IntPtr.Zero ? FindLargestVisibleDescendant(mainHandle) : null;
-                if (mainHandle != IntPtr.Zero && viewportRect != null)
-                {
-                    viewportRect = NarrowAwayFromPanels(mainHandle, viewportRect.Value);
-                }
+                var viewportRect = ComputeViewportRect(mainHandle);
 
                 try
                 {
@@ -268,6 +490,23 @@ namespace NavisTreeExporter.Plugin
                 fullBitmap.Save(outputPath, ImageFormat.Png);
                 return true;
             }
+        }
+
+        /// <summary>
+        /// Locates the 3D viewport's rect (largest visible leaf window,
+        /// narrowed away from any overlapping docked panel), or null if the
+        /// main window handle is invalid or no candidate was found. Shared
+        /// by the interactive Execute() path and the unattended auto-mode
+        /// path so both crop the same way.
+        /// </summary>
+        private static RECT? ComputeViewportRect(IntPtr mainHandle)
+        {
+            if (mainHandle == IntPtr.Zero) return null;
+
+            var rect = FindLargestVisibleDescendant(mainHandle);
+            if (rect == null) return null;
+
+            return NarrowAwayFromPanels(mainHandle, rect.Value);
         }
 
         /// <summary>
