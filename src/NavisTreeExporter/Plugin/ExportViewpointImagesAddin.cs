@@ -31,6 +31,14 @@ namespace NavisTreeExporter.Plugin
         [DllImport("user32.dll")]
         private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
+        [DllImport("user32.dll")]
+        private static extern bool EnumChildWindows(IntPtr hWndParent, EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        private static extern bool IsWindowVisible(IntPtr hWnd);
+
+        private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
         [StructLayout(LayoutKind.Sequential)]
         private struct RECT
         {
@@ -164,10 +172,18 @@ namespace NavisTreeExporter.Plugin
 
         private static bool CaptureMainWindow(string outputPath)
         {
-            var handle = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
-            if (handle == IntPtr.Zero) return false;
-            if (!GetWindowRect(handle, out var rect)) return false;
+            var mainHandle = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
+            if (mainHandle == IntPtr.Zero) return false;
 
+            // Ribbon/menus, the Selection Tree pane, and the Saved Viewpoints
+            // pane are all much smaller than the 3D view, so picking the
+            // largest visible sub-window under the main window is a decent
+            // heuristic for "just the 3D viewport" without needing to know
+            // its exact window class name.
+            var viewportRect = FindLargestVisibleDescendant(mainHandle) ?? GetRectOrNull(mainHandle);
+            if (viewportRect == null) return false;
+
+            var rect = viewportRect.Value;
             var width = rect.Right - rect.Left;
             var height = rect.Bottom - rect.Top;
             if (width <= 0 || height <= 0) return false;
@@ -180,6 +196,40 @@ namespace NavisTreeExporter.Plugin
             }
 
             return true;
+        }
+
+        private static RECT? GetRectOrNull(IntPtr handle)
+        {
+            return GetWindowRect(handle, out var rect) ? rect : (RECT?)null;
+        }
+
+        private static RECT? FindLargestVisibleDescendant(IntPtr parent)
+        {
+            RECT? largest = null;
+            long largestArea = 0;
+
+            EnumWindowsProc visit = null;
+            visit = (hWnd, lParam) =>
+            {
+                if (IsWindowVisible(hWnd) && GetWindowRect(hWnd, out var rect))
+                {
+                    long area = (long)(rect.Right - rect.Left) * (rect.Bottom - rect.Top);
+                    if (area > largestArea)
+                    {
+                        largestArea = area;
+                        largest = rect;
+                    }
+                }
+
+                // EnumChildWindows only walks direct children, so recurse
+                // manually to reach grandchildren (docked panes, the 3D
+                // viewport control, etc. are usually nested a few levels deep).
+                EnumChildWindows(hWnd, visit, IntPtr.Zero);
+                return true;
+            };
+
+            EnumChildWindows(parent, visit, IntPtr.Zero);
+            return largest;
         }
     }
 }
