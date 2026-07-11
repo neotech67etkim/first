@@ -5,15 +5,18 @@
     Windows Task Scheduler.
 
 .DESCRIPTION
-    Picks the most recently modified file in -NwdFolder matching -NwdPattern,
-    then starts Navisworks (Roamer.exe) with that file, after setting the
-    environment variables the ExportViewpointImagesAddin plugin's auto mode
-    reads: NAVIS_AUTO_EXPORT_IMAGES, NAVIS_AUTO_OUTPUT_DIR,
-    NAVIS_AUTO_WAIT_SECONDS. The plugin then runs the whole export with a
-    fixed wait per viewpoint (no interactive Capture prompt), writes a log
-    plus a _COMPLETE.txt marker into a per-run subfolder under -OutputDir,
-    and exits the process itself when done - this script just waits for
-    that exit (or kills it after -TimeoutMinutes if something hangs).
+    Picks the most recently modified file in -SourceFolder matching any of
+    -FilePatterns (both *.nwf and *.nwd by default - .nwf is a Navisworks
+    federated/set file referencing the source models, .nwd is a published
+    standalone file; either can be opened directly), then starts Navisworks
+    (Roamer.exe) with that file, after setting the environment variables
+    the auto-mode watcher plugin reads: NAVIS_AUTO_EXPORT_IMAGES,
+    NAVIS_AUTO_OUTPUT_DIR, NAVIS_AUTO_WAIT_SECONDS. The plugin then runs
+    the whole export with a fixed wait per viewpoint (no interactive
+    Capture prompt), writes a log plus a _COMPLETE.txt marker into a
+    per-run subfolder under -OutputDir, and exits the process itself when
+    done - this script just waits for that exit (or kills it after
+    -TimeoutMinutes if something hangs).
 
     Image generation only: uploading the produced PNGs to a server is not
     handled here. A separate script/process can watch -OutputDir for new
@@ -22,11 +25,12 @@
 .PARAMETER RoamerExe
     Full path to Navisworks Simulate's Roamer.exe.
 
-.PARAMETER NwdFolder
+.PARAMETER SourceFolder
     Folder to search for the file to open.
 
-.PARAMETER NwdPattern
-    Filename filter within NwdFolder (default "*.nwd").
+.PARAMETER FilePatterns
+    Filename filters within SourceFolder (default "*.nwf", "*.nwd" - the
+    newest file across all patterns combined is picked).
 
 .PARAMETER OutputDir
     Base folder for exported images. Each run creates its own timestamped
@@ -43,23 +47,23 @@
 .EXAMPLE
     .\Run-DailyViewpointExport.ps1 `
         -RoamerExe "C:\Program Files\Autodesk\Navisworks Simulate 2022\Roamer.exe" `
-        -NwdFolder "C:\Incoming" `
+        -SourceFolder "C:\Incoming" `
         -OutputDir "C:\ExportedImages" `
         -WaitSeconds 10
 
 .NOTES
     Register with Task Scheduler, e.g.:
     schtasks /Create /TN "NavisTreeExporter Daily Export" /SC DAILY /ST 02:00 /TR ^
-      "powershell.exe -ExecutionPolicy Bypass -File \"C:\Tools\Run-DailyViewpointExport.ps1\" -RoamerExe \"C:\Program Files\Autodesk\Navisworks Simulate 2022\Roamer.exe\" -NwdFolder \"C:\Incoming\" -OutputDir \"C:\ExportedImages\""
+      "powershell.exe -ExecutionPolicy Bypass -File \"C:\Tools\Run-DailyViewpointExport.ps1\" -RoamerExe \"C:\Program Files\Autodesk\Navisworks Simulate 2022\Roamer.exe\" -SourceFolder \"C:\Incoming\" -OutputDir \"C:\ExportedImages\""
 #>
 param(
     [Parameter(Mandatory = $true)]
     [string]$RoamerExe,
 
     [Parameter(Mandatory = $true)]
-    [string]$NwdFolder,
+    [string]$SourceFolder,
 
-    [string]$NwdPattern = "*.nwd",
+    [string[]]$FilePatterns = @("*.nwf", "*.nwd"),
 
     [Parameter(Mandatory = $true)]
     [string]$OutputDir,
@@ -76,17 +80,19 @@ if (-not (Test-Path -LiteralPath $RoamerExe)) {
     exit 1
 }
 
-if (-not (Test-Path -LiteralPath $NwdFolder)) {
-    Write-Error "NwdFolder not found: $NwdFolder"
+if (-not (Test-Path -LiteralPath $SourceFolder)) {
+    Write-Error "SourceFolder not found: $SourceFolder"
     exit 1
 }
 
-$latest = Get-ChildItem -LiteralPath $NwdFolder -Filter $NwdPattern -File |
-    Sort-Object LastWriteTime -Descending |
-    Select-Object -First 1
+$candidates = foreach ($pattern in $FilePatterns) {
+    Get-ChildItem -LiteralPath $SourceFolder -Filter $pattern -File
+}
+
+$latest = $candidates | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 
 if (-not $latest) {
-    Write-Error "No file matching '$NwdPattern' found in $NwdFolder"
+    Write-Error "No file matching any of ($($FilePatterns -join ', ')) found in $SourceFolder"
     exit 1
 }
 

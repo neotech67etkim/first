@@ -143,7 +143,7 @@ Navisworks를 실행하는 프로세스(예: 작업 스케줄러가 띄우는 �
 
 Windows 작업 스케줄러에 등록해서 매일 실행하려면
 [`tools/Run-DailyViewpointExport.ps1`](./tools/Run-DailyViewpointExport.ps1)를
-사용하세요. 지정한 폴더에서 가장 최근에 수정된 `*.nwd` 파일을 찾아
+사용하세요. 지정한 폴더에서 `*.nwf`/`*.nwd` 중 가장 최근에 수정된 파일을 찾아
 Navisworks를 실행하고, 위 환경 변수를 설정해준 뒤 종료를 기다립니다
 (파일 상단 주석에 `schtasks` 등록 예시 포함).
 
