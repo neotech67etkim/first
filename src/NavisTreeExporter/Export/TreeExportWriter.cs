@@ -46,6 +46,7 @@ namespace NavisTreeExporter.Export
         public static void Export(
             Document document,
             ExportDetailLevel detailLevel,
+            bool geometryOnly,
             string jsonPath,
             string itemsCsvPath,
             string propertiesCsvPath,
@@ -89,7 +90,7 @@ namespace NavisTreeExporter.Export
 
                     if (rootItem == null) continue;
 
-                    WriteNode(rootItem, includeBasicInfo, includeProperties, progress, jsonWriter, itemsCsv, propertiesCsv, parentPath: null, depth: 0);
+                    WriteNode(rootItem, includeBasicInfo, includeProperties, geometryOnly, progress, jsonWriter, itemsCsv, propertiesCsv, parentPath: null, depth: 0);
                 }
 
                 jsonWriter.WriteEndArray();
@@ -101,6 +102,7 @@ namespace NavisTreeExporter.Export
             ModelItem item,
             bool includeBasicInfo,
             bool includeProperties,
+            bool geometryOnly,
             ExportProgressReporter progress,
             JsonTextWriter jsonWriter,
             StreamWriter itemsCsv,
@@ -118,12 +120,17 @@ namespace NavisTreeExporter.Export
             try
             {
                 displayName = item.DisplayName;
+                // HasGeometry is needed to apply the filter even in NamesOnly
+                // mode, so it's read independently of includeBasicInfo.
+                if (includeBasicInfo || geometryOnly)
+                {
+                    hasGeometry = item.HasGeometry;
+                }
                 if (includeBasicInfo)
                 {
                     className = item.ClassName;
                     classDisplayName = FixMojibake(item.ClassDisplayName);
                     instanceGuid = item.InstanceGuid == Guid.Empty ? null : item.InstanceGuid.ToString();
-                    hasGeometry = item.HasGeometry;
                     isHidden = item.IsHidden;
                 }
             }
@@ -134,6 +141,21 @@ namespace NavisTreeExporter.Export
             }
 
             var path = string.IsNullOrEmpty(parentPath) ? displayName : parentPath + "/" + displayName;
+
+            if (geometryOnly && !hasGeometry)
+            {
+                // Skip this container/group node entirely (no JSON object, no
+                // CSV row), but keep walking its children as if they were
+                // direct children of this node's own parent - so the tree
+                // just "flattens through" organizational nodes without a
+                // geometry-bearing item of their own, instead of losing them.
+                progress?.ReportItem();
+                foreach (ModelItem skippedChild in SafeGetChildren(item))
+                {
+                    WriteNode(skippedChild, includeBasicInfo, includeProperties, geometryOnly, progress, jsonWriter, itemsCsv, propertiesCsv, path, depth + 1);
+                }
+                return;
+            }
 
             jsonWriter.WriteStartObject();
             WriteJsonString(jsonWriter, "DisplayName", displayName);
@@ -208,7 +230,7 @@ namespace NavisTreeExporter.Export
 
             foreach (ModelItem child in SafeGetChildren(item))
             {
-                WriteNode(child, includeBasicInfo, includeProperties, progress, jsonWriter, itemsCsv, propertiesCsv, path, depth + 1);
+                WriteNode(child, includeBasicInfo, includeProperties, geometryOnly, progress, jsonWriter, itemsCsv, propertiesCsv, path, depth + 1);
             }
 
             jsonWriter.WriteEndArray();

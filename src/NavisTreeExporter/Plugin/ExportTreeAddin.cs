@@ -36,11 +36,13 @@ namespace NavisTreeExporter.Plugin
             }
 
             ExportDetailLevel detailLevel;
+            bool geometryOnly;
             using (var optionsForm = new ExportOptionsForm())
             {
                 optionsForm.ShowDialog();
                 if (optionsForm.SelectedLevel == null) return 0;
                 detailLevel = optionsForm.SelectedLevel.Value;
+                geometryOnly = optionsForm.GeometryOnly;
             }
 
             var includeProperties = detailLevel == ExportDetailLevel.HierarchyAndProperties;
@@ -77,7 +79,7 @@ namespace NavisTreeExporter.Plugin
                         // walked, so the full tree/properties never sit in memory
                         // at once - important on large models with properties
                         // included, where that used to exhaust system memory.
-                        TreeExportWriter.Export(document, detailLevel, jsonPath, itemsCsvPath, propertiesCsvPath, progress);
+                        TreeExportWriter.Export(document, detailLevel, geometryOnly, jsonPath, itemsCsvPath, propertiesCsvPath, progress);
 
                         var resultMessage =
                             "내보내기 완료:" + Environment.NewLine +

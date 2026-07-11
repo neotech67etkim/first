@@ -4,17 +4,22 @@ using NavisTreeExporter.Core;
 namespace NavisTreeExporter.Plugin
 {
     /// <summary>
-    /// Lets the user pick how much detail to export before the folder picker
-    /// runs. One click per option closes the dialog immediately.
+    /// Lets the user pick how much detail to export, plus an optional
+    /// "geometry only" filter, before the folder picker runs. Clicking a
+    /// detail-level button closes the dialog immediately, using whatever the
+    /// checkbox is set to at that point.
     /// </summary>
     internal sealed class ExportOptionsForm : Form
     {
         public ExportDetailLevel? SelectedLevel { get; private set; }
+        public bool GeometryOnly { get; private set; }
+
+        private readonly CheckBox _geometryOnlyCheckBox;
 
         public ExportOptionsForm()
         {
             Text = "Export Selection Tree";
-            ClientSize = new System.Drawing.Size(360, 210);
+            ClientSize = new System.Drawing.Size(360, 250);
             FormBorderStyle = FormBorderStyle.FixedDialog;
             StartPosition = FormStartPosition.CenterScreen;
             MinimizeBox = false;
@@ -58,10 +63,19 @@ namespace NavisTreeExporter.Plugin
             };
             fullButton.Click += (sender, e) => Choose(ExportDetailLevel.HierarchyAndProperties);
 
-            var cancelButton = new Button
+            _geometryOnlyCheckBox = new CheckBox
             {
                 Left = 12,
                 Top = 168,
+                Width = 336,
+                Height = 24,
+                Text = "형상이 있는 항목만 (컨테이너/그룹 노드 제외)",
+            };
+
+            var cancelButton = new Button
+            {
+                Left = 12,
+                Top = 204,
                 Width = 336,
                 Height = 28,
                 Text = "취소",
@@ -76,12 +90,14 @@ namespace NavisTreeExporter.Plugin
             Controls.Add(namesOnlyButton);
             Controls.Add(basicInfoButton);
             Controls.Add(fullButton);
+            Controls.Add(_geometryOnlyCheckBox);
             Controls.Add(cancelButton);
         }
 
         private void Choose(ExportDetailLevel level)
         {
             SelectedLevel = level;
+            GeometryOnly = _geometryOnlyCheckBox.Checked;
             Close();
         }
     }
