@@ -64,7 +64,7 @@ namespace NavisTreeExporter.Plugin
 
         public void ReportProgress(int processed)
         {
-            _statusLabel.Text = string.Format("선택 트리 읽는 중... (처리한 항목: {0:N0}개)", processed);
+            _statusLabel.Text = string.Format("내보내는 중... (처리한 항목: {0:N0}개)", processed);
         }
 
         public void SetIndeterminate(string message)

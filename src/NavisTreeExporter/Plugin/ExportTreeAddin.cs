@@ -51,9 +51,16 @@ namespace NavisTreeExporter.Plugin
                 using (var progressForm = new ExportProgressForm())
                 {
                     progressForm.Show();
-                    progressForm.SetIndeterminate("선택 트리 읽는 중...");
+                    progressForm.SetIndeterminate("내보내는 중...");
                     progressForm.Refresh();
                     System.Windows.Forms.Application.DoEvents();
+
+                    var baseName = BuildBaseFileName(document);
+                    var jsonPath = Path.Combine(folderDialog.SelectedPath, baseName + ".json");
+                    var itemsCsvPath = Path.Combine(folderDialog.SelectedPath, baseName + "_items.csv");
+                    var propertiesCsvPath = includeProperties
+                        ? Path.Combine(folderDialog.SelectedPath, baseName + "_properties.csv")
+                        : null;
 
                     try
                     {
@@ -65,18 +72,11 @@ namespace NavisTreeExporter.Plugin
                             },
                             () => progressForm.CancelRequested);
 
-                        var roots = ModelTreeReader.ReadTree(document, includeProperties, progress);
-
-                        progressForm.SetIndeterminate("파일 저장 중...");
-                        progressForm.Refresh();
-                        System.Windows.Forms.Application.DoEvents();
-
-                        var baseName = BuildBaseFileName(document);
-                        var jsonPath = Path.Combine(folderDialog.SelectedPath, baseName + ".json");
-                        var itemsCsvPath = Path.Combine(folderDialog.SelectedPath, baseName + "_items.csv");
-
-                        JsonTreeExporter.Export(roots, jsonPath);
-                        CsvTreeExporter.ExportItems(roots, itemsCsvPath);
+                        // Streams the tree straight to disk (JSON + CSV) as it's
+                        // walked, so the full tree/properties never sit in memory
+                        // at once - important on large models with properties
+                        // included, where that used to exhaust system memory.
+                        TreeExportWriter.Export(document, includeProperties, jsonPath, itemsCsvPath, propertiesCsvPath, progress);
 
                         var resultMessage =
                             "내보내기 완료:" + Environment.NewLine +
@@ -85,8 +85,6 @@ namespace NavisTreeExporter.Plugin
 
                         if (includeProperties)
                         {
-                            var propertiesCsvPath = Path.Combine(folderDialog.SelectedPath, baseName + "_properties.csv");
-                            CsvTreeExporter.ExportProperties(roots, propertiesCsvPath);
                             resultMessage += Environment.NewLine + propertiesCsvPath;
                         }
 
@@ -98,12 +96,18 @@ namespace NavisTreeExporter.Plugin
                     catch (OperationCanceledException)
                     {
                         progressForm.Close();
+                        DeleteIfExists(jsonPath);
+                        DeleteIfExists(itemsCsvPath);
+                        DeleteIfExists(propertiesCsvPath);
                         MessageBox.Show("내보내기가 취소되었습니다.", "Export Selection Tree",
                             MessageBoxButtons.OK, MessageBoxIcon.Information);
                     }
                     catch (Exception ex)
                     {
                         progressForm.Close();
+                        DeleteIfExists(jsonPath);
+                        DeleteIfExists(itemsCsvPath);
+                        DeleteIfExists(propertiesCsvPath);
                         MessageBox.Show(
                             "내보내기 중 오류가 발생했습니다:" + Environment.NewLine +
                             ex.GetType().Name + ": " + ex.Message + Environment.NewLine + Environment.NewLine +
@@ -114,6 +118,20 @@ namespace NavisTreeExporter.Plugin
             }
 
             return 0;
+        }
+
+        private static void DeleteIfExists(string filePath)
+        {
+            if (string.IsNullOrEmpty(filePath)) return;
+            try
+            {
+                if (File.Exists(filePath)) File.Delete(filePath);
+            }
+            catch (IOException)
+            {
+                // Best-effort cleanup - leaving a partial file behind on a
+                // locked-file edge case isn't worth failing the cancel path over.
+            }
         }
 
         private static string BuildBaseFileName(Document document)

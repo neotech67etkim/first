@@ -13,14 +13,20 @@ Navisworks Simulate용 애드인. 열려 있는 모델의 **선택 트리(Select
 ```
 src/NavisTreeExporter/
   Core/
-    TreeNode.cs           트리 노드 / 속성 DTO
-    ModelTreeReader.cs    Document -> TreeNode 트리로 변환
+    ExportProgressReporter.cs  진행률 콜백 + 취소 체크
   Export/
-    JsonTreeExporter.cs   전체 트리(JSON, 중첩 구조)
-    CsvTreeExporter.cs    items.csv(계층) + properties.csv(속성, long format)
+    TreeExportWriter.cs        트리를 한 번만 순회하며 JSON/CSV를 동시에
+                                파일로 스트리밍 (트리 전체를 메모리에
+                                올리지 않음 - 대용량 모델의 메모리 고갈 방지)
   Plugin/
     ExportTreeAddin.cs    AddInPlugin (Add-ins 탭 > Export Selection Tree 버튼)
+    ExportProgressForm.cs 진행률 다이얼로그 (취소 버튼 포함)
 ```
+
+트리 전체를 먼저 메모리에 읽어들인 뒤 내보내는 구조(DTO 트리 → JSON/CSV
+변환)를 시도했으나, 속성까지 포함해서 읽을 때 메모리 사용량이 너무 커져
+시스템이 먹통이 되는 문제가 있어 항목을 하나씩 순회하며 그 자리에서 바로
+파일에 쓰는 스트리밍 구조로 바꿨습니다.
 
 ## 출력 형식
 
@@ -63,7 +69,9 @@ Windows에서 처음 빌드할 때 오류가 날 수 있습니다. 나머지 코
 ## 다음 단계 (제안)
 
 - [x] 속성 포함 여부 선택 (계층만 / 계층+속성)
+- [x] 대용량 모델 대응을 위한 스트리밍 내보내기 (메모리에 트리 전체를 올리지 않음)
 - [ ] 더 세밀한 내보내기 옵션 다이얼로그 (JSON/CSV 개별 선택, 파일명 지정)
 - [ ] 현재 선택된 항목만 내보내는 옵션 (전체 트리 대신)
-- [ ] 대용량 모델 대응을 위한 재귀 → 반복(iterative) 순회 전환
+- [ ] 매우 깊은 트리 대응을 위한 재귀 → 반복(iterative) 순회 전환 (현재는 재귀
+      호출 스택 깊이가 트리 깊이에 비례 - 일반적인 모델에서는 문제없음)
 - [ ] 단위 테스트용 Mock/추상화 레이어 (Navisworks API는 직접 단위 테스트 불가)
