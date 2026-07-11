@@ -46,6 +46,13 @@ namespace NavisTreeExporter.Plugin
         private const int SwHide = 0;
         private const int SwShow = 5;
 
+        // Docked panel titles to hide before capturing. Deliberately an
+        // explicit list rather than "hide anything with a title" - that
+        // broader rule ended up hiding an essential frame window too and
+        // broke the whole ribbon/viewport layout. Add more titles here if
+        // other panels need hiding too.
+        private static readonly string[] PanelTitlesToHide = { "선택 트리", "저장된 관측점" };
+
         private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
         [StructLayout(LayoutKind.Sequential)]
@@ -99,15 +106,12 @@ namespace NavisTreeExporter.Plugin
 
                 // Find the 3D viewport once (the largest visible sub-window
                 // under the main window - ribbon/menus and every docked pane
-                // are reliably smaller), then hide every other titled window
-                // under the main window so none of them can end up in the
-                // screenshot, regardless of which panels happen to be open.
+                // are reliably smaller), then hide the known docked panels by
+                // name so they don't end up in the screenshot.
                 var mainHandle = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
                 var viewport = mainHandle != IntPtr.Zero ? FindLargestVisibleDescendant(mainHandle) : null;
                 var captureRect = viewport?.Rect ?? GetRectOrNull(mainHandle);
-                var hiddenPanels = (mainHandle != IntPtr.Zero && viewport != null)
-                    ? HideOtherTitledPanels(mainHandle, viewport.Value.Handle)
-                    : new List<IntPtr>();
+                var hiddenPanels = mainHandle != IntPtr.Zero ? HideNamedPanels(mainHandle) : new List<IntPtr>();
                 System.Windows.Forms.Application.DoEvents();
 
                 try
@@ -281,22 +285,17 @@ namespace NavisTreeExporter.Plugin
         }
 
         /// <summary>
-        /// Hides every visible descendant window under <paramref name="mainHandle"/>
-        /// that has a non-empty window title (docked panes like Selection
-        /// Tree, Saved Viewpoints, Properties, etc. all set their caption
-        /// text as the window's title) except <paramref name="keepHandle"/>
-        /// (the 3D viewport). Generic/title-based rather than hardcoding
-        /// specific panel names, so any open panel gets hidden, not just
-        /// the ones tested so far.
+        /// Hides visible descendant windows under <paramref name="mainHandle"/>
+        /// whose title exactly matches one of <see cref="PanelTitlesToHide"/>.
         /// </summary>
-        private static List<IntPtr> HideOtherTitledPanels(IntPtr mainHandle, IntPtr keepHandle)
+        private static List<IntPtr> HideNamedPanels(IntPtr mainHandle)
         {
             var hidden = new List<IntPtr>();
 
             EnumWindowsProc visit = null;
             visit = (hWnd, lParam) =>
             {
-                if (hWnd != keepHandle && IsWindowVisible(hWnd) && !string.IsNullOrWhiteSpace(GetWindowTitle(hWnd)))
+                if (IsWindowVisible(hWnd) && Array.IndexOf(PanelTitlesToHide, GetWindowTitle(hWnd)) >= 0)
                 {
                     ShowWindow(hWnd, SwHide);
                     hidden.Add(hWnd);
