@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Autodesk.Navisworks.Api;
 
 namespace NavisTreeExporter.Core
@@ -26,15 +27,23 @@ namespace NavisTreeExporter.Core
 
         private static TreeNode BuildNode(ModelItem item, bool includeProperties, ExportProgressReporter progress)
         {
-            var node = new TreeNode
+            var node = new TreeNode();
+
+            try
             {
-                DisplayName = item.DisplayName,
-                ClassName = item.ClassName,
-                ClassDisplayName = item.ClassDisplayName,
-                InstanceGuid = item.InstanceGuid == Guid.Empty ? null : item.InstanceGuid.ToString(),
-                HasGeometry = item.HasGeometry,
-                IsHidden = item.IsHidden,
-            };
+                node.DisplayName = item.DisplayName;
+                node.ClassName = item.ClassName;
+                node.ClassDisplayName = item.ClassDisplayName;
+                node.InstanceGuid = item.InstanceGuid == Guid.Empty ? null : item.InstanceGuid.ToString();
+                node.HasGeometry = item.HasGeometry;
+                node.IsHidden = item.IsHidden;
+            }
+            catch (Exception)
+            {
+                // Keep whatever fields were read before the failure - a single
+                // unusual item (e.g. a pseudo/filter node) shouldn't abort the
+                // whole export.
+            }
 
             // Reading PropertyCategories/Properties means a separate API call
             // per category and per property, so on large models this is by
@@ -70,12 +79,24 @@ namespace NavisTreeExporter.Core
 
             progress?.ReportItem();
 
-            foreach (ModelItem child in item.Children)
+            foreach (ModelItem child in SafeGetChildren(item))
             {
                 node.Children.Add(BuildNode(child, includeProperties, progress));
             }
 
             return node;
+        }
+
+        private static IEnumerable<ModelItem> SafeGetChildren(ModelItem item)
+        {
+            try
+            {
+                return item.Children ?? Enumerable.Empty<ModelItem>();
+            }
+            catch (Exception)
+            {
+                return Enumerable.Empty<ModelItem>();
+            }
         }
 
         private static PropertyEntry ReadProperty(DataProperty property)
