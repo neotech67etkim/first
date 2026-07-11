@@ -17,6 +17,11 @@ namespace NavisTreeExporter.Plugin
     /// window to stay visible/unminimized for the duration (it's a real
     /// screen capture, not an off-screen render).
     ///
+    /// Captures the whole main window, then crops to the 3D viewport's
+    /// rectangle - no window hiding/showing involved, since that turned out
+    /// to be risky (an earlier attempt at hiding docked panels ended up
+    /// hiding an essential frame window and broke the whole layout).
+    ///
     /// NOTE: the saved-viewpoint-restoration call
     /// (Document.CurrentViewpoint.CopyFrom) is unverified against the real
     /// Navisworks SDK - see SavedViewpointCollector for the same caveat on
@@ -36,22 +41,6 @@ namespace NavisTreeExporter.Plugin
 
         [DllImport("user32.dll")]
         private static extern bool IsWindowVisible(IntPtr hWnd);
-
-        [DllImport("user32.dll", CharSet = CharSet.Auto)]
-        private static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder lpString, int nMaxCount);
-
-        [DllImport("user32.dll")]
-        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-
-        private const int SwHide = 0;
-        private const int SwShow = 5;
-
-        // Docked panel titles to hide before capturing. Deliberately an
-        // explicit list rather than "hide anything with a title" - that
-        // broader rule ended up hiding an essential frame window too and
-        // broke the whole ribbon/viewport layout. Add more titles here if
-        // other panels need hiding too.
-        private static readonly string[] PanelTitlesToHide = { "선택 트리", "저장된 관측점" };
 
         private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
@@ -104,21 +93,19 @@ namespace NavisTreeExporter.Plugin
                 var cancelled = false;
                 var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-                // Find the 3D viewport once (the largest visible sub-window
-                // under the main window - ribbon/menus and every docked pane
-                // are reliably smaller), then hide the known docked panels by
-                // name so they don't end up in the screenshot.
+                // Figure out where the 3D viewport is just once, up front -
+                // this is read-only (no hiding/showing), so it can't break
+                // the window layout. It's the largest visible sub-window
+                // under the main window, since ribbon/menus and every docked
+                // pane are reliably smaller.
                 var mainHandle = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
-                var viewport = mainHandle != IntPtr.Zero ? FindLargestVisibleDescendant(mainHandle) : null;
-                var captureRect = viewport?.Rect ?? GetRectOrNull(mainHandle);
-                var hiddenPanels = mainHandle != IntPtr.Zero ? HideNamedPanels(mainHandle) : new List<IntPtr>();
-                System.Windows.Forms.Application.DoEvents();
+                RECT? viewportRect = mainHandle != IntPtr.Zero ? FindLargestVisibleDescendant(mainHandle) : null;
 
                 try
                 {
-                    if (captureRect == null)
+                    if (mainHandle == IntPtr.Zero)
                     {
-                        MessageBox.Show("캡처할 화면 영역을 찾지 못했습니다.", "Export Viewpoint Images",
+                        MessageBox.Show("Navisworks 창을 찾지 못했습니다.", "Export Viewpoint Images",
                             MessageBoxButtons.OK, MessageBoxIcon.Error);
                         return 0;
                     }
@@ -166,7 +153,8 @@ namespace NavisTreeExporter.Plugin
 
                             // Hide the prompt itself before capturing - otherwise it's
                             // sitting on top of the Navisworks view and ends up in the
-                            // screenshot instead of the model.
+                            // screenshot instead of the model. (This is our own small
+                            // dialog, not part of the Navisworks window, so it's safe.)
                             prompt.Hide();
                             for (var pump = 0; pump < 3; pump++)
                             {
@@ -184,15 +172,12 @@ namespace NavisTreeExporter.Plugin
                             }
 
                             var imagePath = Path.Combine(folderDialog.SelectedPath, uniqueFileName + ".png");
-                            if (CaptureRegion(captureRect.Value, imagePath))
+                            if (CaptureAndCropToViewport(mainHandle, viewportRect, imagePath))
                             {
                                 savedCount++;
                             }
                         }
                     }
-
-                    RestorePanels(hiddenPanels);
-                    System.Windows.Forms.Application.DoEvents();
 
                     var summary = cancelled
                         ? $"취소됨: {savedCount} / {viewpoints.Count}개 이미지를 저장한 상태에서 중단했습니다."
@@ -213,37 +198,54 @@ namespace NavisTreeExporter.Plugin
                         ex.StackTrace,
                         "Export Viewpoint Images", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
-                finally
-                {
-                    // Safety net in case an exception skipped the normal
-                    // restore above - ShowWindow on an already-visible
-                    // window is a harmless no-op.
-                    RestorePanels(hiddenPanels);
-                }
             }
 
             return 0;
         }
 
-        private static bool CaptureRegion(RECT rect, string outputPath)
+        /// <summary>
+        /// Captures the whole main window, then crops the result down to
+        /// <paramref name="viewportRect"/> (falls back to the full window if
+        /// that's null/couldn't be determined).
+        /// </summary>
+        private static bool CaptureAndCropToViewport(IntPtr mainHandle, RECT? viewportRect, string outputPath)
         {
-            var width = rect.Right - rect.Left;
-            var height = rect.Bottom - rect.Top;
-            if (width <= 0 || height <= 0) return false;
+            if (!GetWindowRect(mainHandle, out var windowRect)) return false;
 
-            using (var bitmap = new System.Drawing.Bitmap(width, height, PixelFormat.Format32bppArgb))
-            using (var graphics = System.Drawing.Graphics.FromImage(bitmap))
+            var fullWidth = windowRect.Right - windowRect.Left;
+            var fullHeight = windowRect.Bottom - windowRect.Top;
+            if (fullWidth <= 0 || fullHeight <= 0) return false;
+
+            using (var fullBitmap = new System.Drawing.Bitmap(fullWidth, fullHeight, PixelFormat.Format32bppArgb))
             {
-                graphics.CopyFromScreen(rect.Left, rect.Top, 0, 0, new System.Drawing.Size(width, height));
-                bitmap.Save(outputPath, ImageFormat.Png);
+                using (var graphics = System.Drawing.Graphics.FromImage(fullBitmap))
+                {
+                    graphics.CopyFromScreen(windowRect.Left, windowRect.Top, 0, 0, new System.Drawing.Size(fullWidth, fullHeight));
+                }
+
+                if (viewportRect != null)
+                {
+                    var v = viewportRect.Value;
+                    var cropRect = new System.Drawing.Rectangle(
+                        v.Left - windowRect.Left,
+                        v.Top - windowRect.Top,
+                        v.Right - v.Left,
+                        v.Bottom - v.Top);
+                    cropRect.Intersect(new System.Drawing.Rectangle(0, 0, fullWidth, fullHeight));
+
+                    if (cropRect.Width > 0 && cropRect.Height > 0)
+                    {
+                        using (var cropped = fullBitmap.Clone(cropRect, fullBitmap.PixelFormat))
+                        {
+                            cropped.Save(outputPath, ImageFormat.Png);
+                        }
+                        return true;
+                    }
+                }
+
+                fullBitmap.Save(outputPath, ImageFormat.Png);
+                return true;
             }
-
-            return true;
-        }
-
-        private static RECT? GetRectOrNull(IntPtr handle)
-        {
-            return handle != IntPtr.Zero && GetWindowRect(handle, out var rect) ? rect : (RECT?)null;
         }
 
         /// <summary>
@@ -253,10 +255,9 @@ namespace NavisTreeExporter.Plugin
         /// 3D viewport, so "largest" is a decent stand-in for "the viewport"
         /// without needing to know its exact window class name.
         /// </summary>
-        private static (IntPtr Handle, RECT Rect)? FindLargestVisibleDescendant(IntPtr parent)
+        private static RECT? FindLargestVisibleDescendant(IntPtr parent)
         {
-            IntPtr largestHandle = IntPtr.Zero;
-            RECT largestRect = default;
+            RECT? largest = null;
             long largestArea = 0;
 
             EnumWindowsProc visit = null;
@@ -268,8 +269,7 @@ namespace NavisTreeExporter.Plugin
                     if (area > largestArea)
                     {
                         largestArea = area;
-                        largestRect = rect;
-                        largestHandle = hWnd;
+                        largest = rect;
                     }
                 }
 
@@ -281,47 +281,7 @@ namespace NavisTreeExporter.Plugin
             };
 
             EnumChildWindows(parent, visit, IntPtr.Zero);
-            return largestHandle == IntPtr.Zero ? ((IntPtr, RECT)?)null : (largestHandle, largestRect);
-        }
-
-        /// <summary>
-        /// Hides visible descendant windows under <paramref name="mainHandle"/>
-        /// whose title exactly matches one of <see cref="PanelTitlesToHide"/>.
-        /// </summary>
-        private static List<IntPtr> HideNamedPanels(IntPtr mainHandle)
-        {
-            var hidden = new List<IntPtr>();
-
-            EnumWindowsProc visit = null;
-            visit = (hWnd, lParam) =>
-            {
-                if (IsWindowVisible(hWnd) && Array.IndexOf(PanelTitlesToHide, GetWindowTitle(hWnd)) >= 0)
-                {
-                    ShowWindow(hWnd, SwHide);
-                    hidden.Add(hWnd);
-                }
-
-                EnumChildWindows(hWnd, visit, IntPtr.Zero);
-                return true;
-            };
-
-            EnumChildWindows(mainHandle, visit, IntPtr.Zero);
-            return hidden;
-        }
-
-        private static void RestorePanels(List<IntPtr> handles)
-        {
-            foreach (var hWnd in handles)
-            {
-                ShowWindow(hWnd, SwShow);
-            }
-        }
-
-        private static string GetWindowTitle(IntPtr hWnd)
-        {
-            var buffer = new System.Text.StringBuilder(256);
-            GetWindowText(hWnd, buffer, buffer.Capacity);
-            return buffer.ToString();
+            return largest;
         }
     }
 }
