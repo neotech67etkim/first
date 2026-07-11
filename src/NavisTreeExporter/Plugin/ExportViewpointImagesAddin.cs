@@ -83,48 +83,62 @@ namespace NavisTreeExporter.Plugin
             {
                 if (folderDialog.ShowDialog() != DialogResult.OK) return 0;
 
-                using (var progressForm = new ExportProgressForm())
+                var savedCount = 0;
+                var skippedCount = 0;
+                var cancelled = false;
+                var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                try
                 {
-                    progressForm.Show();
-                    progressForm.SetIndeterminate($"관측점 캡처 준비 중... (0 / {viewpoints.Count})");
-                    progressForm.Refresh();
-                    System.Windows.Forms.Application.DoEvents();
-
-                    var savedCount = 0;
-                    var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-                    try
+                    for (var i = 0; i < viewpoints.Count; i++)
                     {
-                        for (var i = 0; i < viewpoints.Count; i++)
+                        var (path, viewpoint) = viewpoints[i];
+
+                        try
                         {
-                            if (progressForm.CancelRequested) break;
+                            document.CurrentViewpoint.CopyFrom(viewpoint.Viewpoint);
+                        }
+                        catch (Exception)
+                        {
+                            continue; // skip viewpoints that fail to apply, keep going
+                        }
 
-                            var (path, viewpoint) = viewpoints[i];
-                            progressForm.SetIndeterminate($"관측점 캡처 중... ({i + 1} / {viewpoints.Count}) {path}");
-                            System.Windows.Forms.Application.DoEvents();
+                        System.Windows.Forms.Application.DoEvents();
 
-                            try
-                            {
-                                document.CurrentViewpoint.CopyFrom(viewpoint.Viewpoint);
-                            }
-                            catch (Exception)
-                            {
-                                continue; // skip viewpoints that fail to apply, keep going
-                            }
+                        using (var prompt = new CapturePromptForm())
+                        {
+                            prompt.SetStatus($"({i + 1} / {viewpoints.Count}) {path}" + Environment.NewLine +
+                                "로딩이 끝나면 캡처를 누르세요.");
+                            prompt.Show();
 
-                            // Hide our own (TopMost) progress window before capturing -
-                            // otherwise it's sitting on top of the Navisworks view and
-                            // ends up in the screenshot instead of the model.
-                            progressForm.Hide();
-
-                            // Pump messages + a short sleep so the progress window
-                            // actually disappears and the 3D view finishes redrawing
-                            // before we grab the screen - DoEvents alone doesn't
-                            // guarantee either has happened yet.
-                            for (var pump = 0; pump < 5; pump++)
+                            while (prompt.Result == null)
                             {
                                 System.Windows.Forms.Application.DoEvents();
-                                System.Threading.Thread.Sleep(60);
+                                System.Threading.Thread.Sleep(30);
+                            }
+
+                            var result = prompt.Result.Value;
+
+                            if (result == CapturePromptForm.PromptResult.Cancel)
+                            {
+                                cancelled = true;
+                                break;
+                            }
+
+                            if (result == CapturePromptForm.PromptResult.Skip)
+                            {
+                                skippedCount++;
+                                continue;
+                            }
+
+                            // Hide the prompt itself before capturing - otherwise it's
+                            // sitting on top of the Navisworks view and ends up in the
+                            // screenshot instead of the model.
+                            prompt.Hide();
+                            for (var pump = 0; pump < 3; pump++)
+                            {
+                                System.Windows.Forms.Application.DoEvents();
+                                System.Threading.Thread.Sleep(30);
                             }
 
                             var fileName = FileNameSanitizer.Sanitize(path, "Viewpoint" + i);
@@ -137,33 +151,31 @@ namespace NavisTreeExporter.Plugin
                             }
 
                             var imagePath = Path.Combine(folderDialog.SelectedPath, uniqueFileName + ".png");
-                            var captured = CaptureMainWindow(imagePath);
-
-                            progressForm.Show();
-                            System.Windows.Forms.Application.DoEvents();
-
-                            if (captured)
+                            if (CaptureMainWindow(imagePath))
                             {
                                 savedCount++;
                             }
                         }
-
-                        progressForm.Close();
-
-                        MessageBox.Show(
-                            $"완료: {savedCount} / {viewpoints.Count}개 이미지를 저장했습니다." + Environment.NewLine +
-                            folderDialog.SelectedPath,
-                            "Export Viewpoint Images", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     }
-                    catch (Exception ex)
+
+                    var summary = cancelled
+                        ? $"취소됨: {savedCount} / {viewpoints.Count}개 이미지를 저장한 상태에서 중단했습니다."
+                        : $"완료: {savedCount} / {viewpoints.Count}개 이미지를 저장했습니다.";
+                    if (skippedCount > 0)
                     {
-                        progressForm.Close();
-                        MessageBox.Show(
-                            "내보내기 중 오류가 발생했습니다:" + Environment.NewLine +
-                            ex.GetType().Name + ": " + ex.Message + Environment.NewLine + Environment.NewLine +
-                            ex.StackTrace,
-                            "Export Viewpoint Images", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        summary += Environment.NewLine + $"건너뛴 관측점: {skippedCount}개";
                     }
+
+                    MessageBox.Show(summary + Environment.NewLine + folderDialog.SelectedPath,
+                        "Export Viewpoint Images", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(
+                        "내보내기 중 오류가 발생했습니다:" + Environment.NewLine +
+                        ex.GetType().Name + ": " + ex.Message + Environment.NewLine + Environment.NewLine +
+                        ex.StackTrace,
+                        "Export Viewpoint Images", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             }
 
