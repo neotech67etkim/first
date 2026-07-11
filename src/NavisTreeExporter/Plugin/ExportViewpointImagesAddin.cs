@@ -161,10 +161,10 @@ namespace NavisTreeExporter.Plugin
             var height = rect.Bottom - rect.Top;
             if (width <= 0 || height <= 0) return false;
 
-            using (var bitmap = new Bitmap(width, height, PixelFormat.Format32bppArgb))
-            using (var graphics = Graphics.FromImage(bitmap))
+            using (var bitmap = new System.Drawing.Bitmap(width, height, PixelFormat.Format32bppArgb))
+            using (var graphics = System.Drawing.Graphics.FromImage(bitmap))
             {
-                graphics.CopyFromScreen(rect.Left, rect.Top, 0, 0, new Size(width, height));
+                graphics.CopyFromScreen(rect.Left, rect.Top, 0, 0, new System.Drawing.Size(width, height));
                 bitmap.Save(outputPath, ImageFormat.Png);
             }
 
