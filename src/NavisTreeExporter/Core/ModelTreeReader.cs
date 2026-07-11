@@ -42,20 +42,29 @@ namespace NavisTreeExporter.Core
             // the caller only needs the hierarchy.
             if (includeProperties)
             {
-                foreach (PropertyCategory category in item.PropertyCategories)
+                try
                 {
-                    var categoryEntry = new PropertyCategoryEntry
+                    foreach (PropertyCategory category in item.PropertyCategories)
                     {
-                        CategoryName = category.Name,
-                        CategoryDisplayName = category.DisplayName,
-                    };
+                        var categoryEntry = new PropertyCategoryEntry
+                        {
+                            CategoryName = category.Name,
+                            CategoryDisplayName = category.DisplayName,
+                        };
 
-                    foreach (DataProperty property in category.Properties)
-                    {
-                        categoryEntry.Properties.Add(ReadProperty(property));
+                        foreach (DataProperty property in category.Properties)
+                        {
+                            categoryEntry.Properties.Add(ReadProperty(property));
+                        }
+
+                        node.PropertyCategories.Add(categoryEntry);
                     }
-
-                    node.PropertyCategories.Add(categoryEntry);
+                }
+                catch (Exception)
+                {
+                    // A single item's property data being unreadable shouldn't
+                    // abort the whole export - keep whatever categories were
+                    // read so far and move on.
                 }
             }
 
@@ -77,25 +86,37 @@ namespace NavisTreeExporter.Core
                 DisplayName = property.DisplayName,
             };
 
-            var value = property.Value;
+            VariantData value;
+            try
+            {
+                value = property.Value;
+            }
+            catch (Exception)
+            {
+                return entry;
+            }
+
             if (value == null) return entry;
 
+            // VariantData's formatting/type accessors are third-party code
+            // with undocumented failure modes for unusual property values
+            // (already seen NotSupportedException for "IsDisplayString" and
+            // NullReferenceException for something else) - catch broadly so
+            // one odd property never aborts the whole export.
             try
             {
                 entry.Value = value.ToDisplayString();
             }
-            catch (NotSupportedException)
+            catch (Exception)
             {
                 entry.Value = null;
             }
 
             try
             {
-                // VariantData.DataType throws NotSupportedException when the
-                // value only exists as a display string (no typed backing value).
                 entry.DataType = value.IsDisplayString ? "DisplayString" : value.DataType.ToString();
             }
-            catch (NotSupportedException)
+            catch (Exception)
             {
                 entry.DataType = null;
             }
