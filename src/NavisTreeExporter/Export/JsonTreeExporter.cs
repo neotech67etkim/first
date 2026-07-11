@@ -17,14 +17,22 @@ namespace NavisTreeExporter.Export
                 Roots = roots,
             };
 
-            var settings = new JsonSerializerSettings
+            var serializer = new JsonSerializer
             {
                 Formatting = Formatting.Indented,
                 NullValueHandling = NullValueHandling.Ignore,
             };
 
-            var json = JsonConvert.SerializeObject(payload, settings);
-            File.WriteAllText(filePath, json, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            // Serialize straight to the file stream instead of building the
+            // whole document as one in-memory string first (JsonConvert.
+            // SerializeObject) - on a large tree that single string/
+            // StringBuilder got big enough to trigger a NullReferenceException
+            // deep inside Newtonsoft's JsonTextWriter/StringBuilder internals.
+            using (var streamWriter = new StreamWriter(filePath, false, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
+            using (var jsonWriter = new JsonTextWriter(streamWriter))
+            {
+                serializer.Serialize(jsonWriter, payload);
+            }
         }
     }
 }
