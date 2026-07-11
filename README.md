@@ -46,6 +46,10 @@ src/NavisTreeExporter/
     ExportOptionsForm.cs         내보내기 범위 선택 다이얼로그
     ExportProgressForm.cs        진행률 다이얼로그 (취소 버튼 포함, 공용)
     ExportViewpointImagesAddin.cs  AddInPlugin (Export Viewpoint Images 버튼)
+    ViewpointCaptureService.cs   화면 캡처/크롭 + 자동 모드 내보내기 로직
+                                  (버튼 방식/자동 모드 공용)
+    ExportViewpointImagesAutoWatcher.cs  EventWatcherPlugin (자동 모드 부트스트랩,
+                                  버튼 없이 시작 시 자동 로드됨)
 ```
 
 트리 전체를 먼저 메모리에 읽어들인 뒤 내보내는 구조(DTO 트리 → JSON/CSV
@@ -114,19 +118,27 @@ Navisworks를 실행하는 프로세스(예: 작업 스케줄러가 띄우는 �
 
 동작 방식:
 
-1. 플러그인 로드 시(`Load()`) 자동 모드 환경 변수가 있으면 1초 간격으로
-   문서가 열렸는지 폴링 시작 (최대 10분 대기, 그 안에 안 열리면 포기하고
-   종료).
-2. 문서가 열리면 저장된 관측점을 모두 순회하며, 사람이 누르는 **캡처**
+1. `ExportViewpointImagesAddin`(리본 버튼, `AddInPlugin`)은 버튼을 눌러야만
+   실행되는 구조라 — 실제 빌드해보니 여기에 `Load()`/`Unload()`를
+   추가하는 첫 시도는 `CS0115`(재정의할 메서드 없음) 오류로 확인됐습니다 —
+   자동 모드는 **`ExportViewpointImagesAutoWatcher`라는 별도의
+   `EventWatcherPlugin`**이 담당합니다. 이 플러그인 종류는 Navisworks가
+   시작할 때 버튼 클릭과 무관하게 자동으로 로드되고, `OnLoaded()`/
+   `OnUnloading()`을 오버라이드해 API 이벤트 구독 등을 붙이는 것이 SDK의
+   표준 패턴입니다.
+2. `OnLoaded()`에서 자동 모드 환경 변수가 있으면 1초 간격으로 문서가
+   열렸는지 폴링 시작 (최대 10분 대기, 그 안에 안 열리면 포기하고 종료).
+3. 문서가 열리면 저장된 관측점을 모두 순회하며, 사람이 누르는 **캡처**
    버튼 대신 **관측점 이동 후 고정 대기시간**만큼 기다렸다가 캡처합니다.
    (대화상자를 띄우면 아무도 클릭할 사람이 없어 영원히 멈추므로, 자동
-   모드에서는 MessageBox를 전혀 띄우지 않습니다.)
-3. `NAVIS_AUTO_OUTPUT_DIR\<파일명>_<타임스탬프>\` 폴더를 만들어 그 안에
+   모드에서는 MessageBox를 전혀 띄우지 않습니다.) 캡처/크롭 로직 자체는
+   버튼 방식과 완전히 동일한 코드(`ViewpointCaptureService`)를 공유합니다.
+4. `NAVIS_AUTO_OUTPUT_DIR\<파일명>_<타임스탬프>\` 폴더를 만들어 그 안에
    PNG들과 `_export_log.txt`(진행 로그)를 저장하고, 모두 끝나면
    `_COMPLETE.txt` 마커 파일을 씁니다 — 업로드 스크립트는 이 마커가 있는
    폴더만 골라서 올리면 아직 다 안 끝난 폴더를 건드리는 일을 피할 수
    있습니다.
-4. 끝나면(성공/실패 상관없이) 프로세스가 스스로 종료됩니다 — 작업
+5. 끝나면(성공/실패 상관없이) 프로세스가 스스로 종료됩니다 — 작업
    스케줄러 작업이 정상적으로 마무리됩니다.
 
 Windows 작업 스케줄러에 등록해서 매일 실행하려면
@@ -135,10 +147,11 @@ Windows 작업 스케줄러에 등록해서 매일 실행하려면
 Navisworks를 실행하고, 위 환경 변수를 설정해준 뒤 종료를 기다립니다
 (파일 상단 주석에 `schtasks` 등록 예시 포함).
 
-이 자동 모드는 Windows 환경에서 아직 실제로 컴파일·실행해보지 못한
-부분입니다(`Load()`/`Unload()` 오버라이드, `document.Models.Count`로 로딩
-여부를 판단하는 방식, `document.CurrentFileName` 등) — 지금까지처럼 실제
-빌드 오류를 보면서 맞춰나가야 할 수 있습니다.
+`EventWatcherPlugin`이 버튼 없이도 시작 시 자동으로 로드된다는 점과
+`document.Models.Count`로 "문서가 다 열렸는지"를 판단하는 방식,
+`document.CurrentFileName` 프로퍼티명은 아직 실제로 컴파일·실행해보지
+못한 부분입니다 — 지금까지처럼 실제 빌드 오류를 보면서 맞춰나가야 할 수
+있습니다.
 
 ## 빌드 & 배포
 
