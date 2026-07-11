@@ -18,6 +18,31 @@ namespace NavisTreeExporter.Export
     /// </summary>
     public static class TreeExportWriter
     {
+        // Navisworks's localized UI labels (class/category/property display
+        // names) come back mojibake'd on this Korean Windows install - the
+        // classic signature of UTF-8 bytes that got decoded as CP949 somewhere
+        // in the API's native interop layer (e.g. "파일" -> "?뚯씪",
+        // "그룹" -> "洹몃９"). Internal identifiers (ClassName, CategoryName,
+        // PropertyName) and user-entered item names are plain ASCII/already
+        // correct and are left untouched. Re-encoding the corrupted string as
+        // CP949 recovers the original UTF-8 bytes, which we then decode
+        // properly.
+        private static readonly Encoding Cp949 = Encoding.GetEncoding(949);
+
+        private static string FixMojibake(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return value;
+            try
+            {
+                var bytes = Cp949.GetBytes(value);
+                return Encoding.UTF8.GetString(bytes);
+            }
+            catch (Exception)
+            {
+                return value;
+            }
+        }
+
         public static void Export(
             Document document,
             bool includeProperties,
@@ -90,7 +115,7 @@ namespace NavisTreeExporter.Export
             {
                 displayName = item.DisplayName;
                 className = item.ClassName;
-                classDisplayName = item.ClassDisplayName;
+                classDisplayName = FixMojibake(item.ClassDisplayName);
                 instanceGuid = item.InstanceGuid == Guid.Empty ? null : item.InstanceGuid.ToString();
                 hasGeometry = item.HasGeometry;
                 isHidden = item.IsHidden;
@@ -127,7 +152,7 @@ namespace NavisTreeExporter.Export
                     foreach (PropertyCategory category in item.PropertyCategories)
                     {
                         var categoryName = category.Name;
-                        var categoryDisplayName = category.DisplayName;
+                        var categoryDisplayName = FixMojibake(category.DisplayName);
 
                         jsonWriter.WriteStartObject();
                         WriteJsonString(jsonWriter, "CategoryName", categoryName);
@@ -193,7 +218,7 @@ namespace NavisTreeExporter.Export
         private static void ReadProperty(DataProperty property, out string name, out string displayName, out string value, out string dataType)
         {
             name = property.Name;
-            displayName = property.DisplayName;
+            displayName = FixMojibake(property.DisplayName);
             value = null;
             dataType = null;
 
