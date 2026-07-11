@@ -104,9 +104,15 @@ namespace NavisTreeExporter.Plugin
                                 continue; // skip viewpoints that fail to apply, keep going
                             }
 
-                            // Pump messages + a short sleep so the 3D view finishes
-                            // redrawing before we grab the screen - DoEvents alone
-                            // doesn't guarantee the GPU-rendered frame is ready.
+                            // Hide our own (TopMost) progress window before capturing -
+                            // otherwise it's sitting on top of the Navisworks view and
+                            // ends up in the screenshot instead of the model.
+                            progressForm.Hide();
+
+                            // Pump messages + a short sleep so the progress window
+                            // actually disappears and the 3D view finishes redrawing
+                            // before we grab the screen - DoEvents alone doesn't
+                            // guarantee either has happened yet.
                             for (var pump = 0; pump < 5; pump++)
                             {
                                 System.Windows.Forms.Application.DoEvents();
@@ -123,7 +129,12 @@ namespace NavisTreeExporter.Plugin
                             }
 
                             var imagePath = Path.Combine(folderDialog.SelectedPath, uniqueFileName + ".png");
-                            if (CaptureMainWindow(imagePath))
+                            var captured = CaptureMainWindow(imagePath);
+
+                            progressForm.Show();
+                            System.Windows.Forms.Application.DoEvents();
+
+                            if (captured)
                             {
                                 savedCount++;
                             }
