@@ -47,11 +47,11 @@ param(
 )
 
 if (-not (Test-Path -LiteralPath $CsvPath)) {
-    Write-Host "CSV 파일을 찾을 수 없습니다: $CsvPath" -ForegroundColor Red
+    Write-Host "CSV file not found: $CsvPath" -ForegroundColor Red
     exit 1
 }
 if (-not (Test-Path -LiteralPath $KeywordsFile)) {
-    Write-Host "키워드 파일을 찾을 수 없습니다: $KeywordsFile" -ForegroundColor Red
+    Write-Host "Keywords file not found: $KeywordsFile" -ForegroundColor Red
     exit 1
 }
 if (-not $OutputPath) {
@@ -64,13 +64,13 @@ $keywords = Get-Content -LiteralPath $KeywordsFile -Encoding UTF8 |
     Select-Object -Unique
 
 if ($keywords.Count -eq 0) {
-    Write-Host "키워드 파일이 비어 있습니다: $KeywordsFile" -ForegroundColor Red
+    Write-Host "Keywords file is empty: $KeywordsFile" -ForegroundColor Red
     exit 1
 }
 
-Write-Host "키워드 $($keywords.Count)개 로드됨: $KeywordsFile"
-Write-Host "검색 대상 컬럼: $SearchColumn (일치 방식: $(if ($ExactMatch) { '정확히 일치' } else { '포함(부분 일치)' }))"
-Write-Host "CSV 처리 시작: $CsvPath"
+Write-Host "Loaded $($keywords.Count) keyword(s) from: $KeywordsFile"
+Write-Host "Search column: $SearchColumn (mode: $(if ($ExactMatch) { 'exact match' } else { 'contains' }))"
+Write-Host "Processing CSV: $CsvPath"
 Write-Host ""
 
 # Fast pre-filter: one combined regex tested per row, so most rows are
@@ -103,7 +103,7 @@ try {
     $searchIndex = if ($SearchColumn -eq "DisplayName") { $displayNameIndex } else { $pathIndex }
 
     if ($searchIndex -lt 0) {
-        Write-Host "CSV에 '$SearchColumn' 컬럼이 없습니다. 헤더: $($headers -join ', ')" -ForegroundColor Red
+        Write-Host "CSV has no '$SearchColumn' column. Headers: $($headers -join ', ')" -ForegroundColor Red
         exit 1
     }
 
@@ -112,7 +112,7 @@ try {
         $rowCount++
 
         if ($rowCount % 500000 -eq 0) {
-            Write-Host ("  {0:N0}행 처리... ({1:N0}건 매칭, {2:N1}초 경과)" -f $rowCount, $matchCount, $stopwatch.Elapsed.TotalSeconds)
+            Write-Host ("  {0:N0} rows processed... ({1:N0} matches, {2:N1}s elapsed)" -f $rowCount, $matchCount, $stopwatch.Elapsed.TotalSeconds)
         }
 
         if ($fields.Count -le $searchIndex) { continue }
@@ -151,15 +151,15 @@ finally {
 $stopwatch.Stop()
 
 Write-Host ""
-Write-Host ("=== 완료 ({0:N1}초) ===" -f $stopwatch.Elapsed.TotalSeconds) -ForegroundColor Green
-Write-Host "전체 행: $($rowCount.ToString('N0'))"
-Write-Host "매칭 결과: $($matchCount.ToString('N0'))건"
-Write-Host "매칭된 키워드: $($matchedKeywords.Count) / $($keywords.Count)"
-Write-Host "결과 CSV: $OutputPath"
+Write-Host ("=== Done ({0:N1}s) ===" -f $stopwatch.Elapsed.TotalSeconds) -ForegroundColor Green
+Write-Host "Total rows: $($rowCount.ToString('N0'))"
+Write-Host "Matches: $($matchCount.ToString('N0'))"
+Write-Host "Keywords matched: $($matchedKeywords.Count) / $($keywords.Count)"
+Write-Host "Result CSV: $OutputPath"
 
 $unmatched = $keywords | Where-Object { -not $matchedKeywords.Contains($_) }
 if ($unmatched.Count -gt 0) {
     $unmatchedPath = Join-Path (Split-Path -LiteralPath $OutputPath -Parent) "unmatched_keywords.txt"
     $unmatched | Set-Content -LiteralPath $unmatchedPath -Encoding UTF8
-    Write-Host "매칭 안 된 키워드 $($unmatched.Count)개 -> $unmatchedPath" -ForegroundColor Yellow
+    Write-Host "$($unmatched.Count) keyword(s) had no match -> $unmatchedPath" -ForegroundColor Yellow
 }
