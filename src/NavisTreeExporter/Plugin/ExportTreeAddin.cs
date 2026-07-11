@@ -35,14 +35,15 @@ namespace NavisTreeExporter.Plugin
                 return 0;
             }
 
-            var propertyChoice = MessageBox.Show(
-                "속성(Property) 정보도 함께 내보낼까요?" + Environment.NewLine + Environment.NewLine +
-                "예(Y): 계층 구조 + 전체 속성 포함 (느림)" + Environment.NewLine +
-                "아니오(N): 계층 구조만 (빠름)",
-                "Export Selection Tree", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+            ExportDetailLevel detailLevel;
+            using (var optionsForm = new ExportOptionsForm())
+            {
+                optionsForm.ShowDialog();
+                if (optionsForm.SelectedLevel == null) return 0;
+                detailLevel = optionsForm.SelectedLevel.Value;
+            }
 
-            if (propertyChoice == DialogResult.Cancel) return 0;
-            var includeProperties = propertyChoice == DialogResult.Yes;
+            var includeProperties = detailLevel == ExportDetailLevel.HierarchyAndProperties;
 
             using (var folderDialog = new FolderBrowserDialog { Description = "내보낼 폴더를 선택하세요" })
             {
@@ -76,7 +77,7 @@ namespace NavisTreeExporter.Plugin
                         // walked, so the full tree/properties never sit in memory
                         // at once - important on large models with properties
                         // included, where that used to exhaust system memory.
-                        TreeExportWriter.Export(document, includeProperties, jsonPath, itemsCsvPath, propertiesCsvPath, progress);
+                        TreeExportWriter.Export(document, detailLevel, jsonPath, itemsCsvPath, propertiesCsvPath, progress);
 
                         var resultMessage =
                             "내보내기 완료:" + Environment.NewLine +

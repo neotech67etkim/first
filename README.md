@@ -1,9 +1,15 @@
 # NavisTreeExporter
 
 Navisworks Simulate용 애드인. 열려 있는 모델의 **선택 트리(Selection Tree)**를
-읽어 **JSON**과 **CSV**로 저장합니다. 실행 시 계층 구조만 빠르게 내보낼지,
-속성(PropertyCategories/Properties)까지 포함해서 내보낼지 선택할 수 있습니다
-(속성 포함은 항목당 API 호출이 훨씬 많아 느립니다).
+읽어 **JSON**과 **CSV**로 저장합니다. 실행 시 내보낼 정보 범위를 3단계 중에서
+고를 수 있습니다.
+
+1. **이름 + 계층 구조만** — `DisplayName`과 부모/자식 관계만. 가장 가볍고 빠름.
+2. **이름 + 계층 + 기본 정보** — `ClassName`/`ClassDisplayName`/`InstanceGuid`/
+   `HasGeometry`/`IsHidden` 추가.
+3. **이름 + 계층 + 전체 속성** — `PropertyCategories`/`Properties`까지 포함.
+   항목당 API 호출이 훨씬 많아 가장 느리고, 대용량 모델에서는 결과 파일도
+   수 GB까지 커질 수 있습니다.
 
 추출한 데이터는 이후 다른 설계 자료(BIM 모델, 물량 리스트 등)와 비교하여
 트리 내 항목들을 식별·매칭하는 후속 작업의 입력으로 사용됩니다.
@@ -13,14 +19,16 @@ Navisworks Simulate용 애드인. 열려 있는 모델의 **선택 트리(Select
 ```
 src/NavisTreeExporter/
   Core/
-    ExportProgressReporter.cs  진행률 콜백 + 취소 체크
+    ExportDetailLevel.cs        3단계 내보내기 범위 (이름만 / +기본정보 / +속성)
+    ExportProgressReporter.cs   진행률 콜백 + 취소 체크
   Export/
-    TreeExportWriter.cs        트리를 한 번만 순회하며 JSON/CSV를 동시에
-                                파일로 스트리밍 (트리 전체를 메모리에
-                                올리지 않음 - 대용량 모델의 메모리 고갈 방지)
+    TreeExportWriter.cs         트리를 한 번만 순회하며 JSON/CSV를 동시에
+                                 파일로 스트리밍 (트리 전체를 메모리에
+                                 올리지 않음 - 대용량 모델의 메모리 고갈 방지)
   Plugin/
-    ExportTreeAddin.cs    AddInPlugin (Add-ins 탭 > Export Selection Tree 버튼)
-    ExportProgressForm.cs 진행률 다이얼로그 (취소 버튼 포함)
+    ExportTreeAddin.cs      AddInPlugin (Add-ins 탭 > Export Selection Tree 버튼)
+    ExportOptionsForm.cs    내보내기 범위 선택 다이얼로그
+    ExportProgressForm.cs   진행률 다이얼로그 (취소 버튼 포함)
 ```
 
 트리 전체를 먼저 메모리에 읽어들인 뒤 내보내는 구조(DTO 트리 → JSON/CSV
@@ -30,13 +38,22 @@ src/NavisTreeExporter/
 
 ## 출력 형식
 
-- **JSON**: 트리 구조를 그대로 중첩된 형태로 저장 (`Children`으로 재귀).
-- **CSV (items)**: 항목 1개 = 1행. `Path, DisplayName, ClassName,
-  ClassDisplayName, InstanceGuid, ParentPath, HasGeometry, IsHidden, Depth`
+- **JSON**: 트리 구조를 그대로 중첩된 형태로 저장 (`Children`으로 재귀). 선택한
+  범위에 따라 `ClassName`/`ClassDisplayName`/`InstanceGuid`/`HasGeometry`/
+  `IsHidden`/`PropertyCategories` 필드가 포함되거나 생략됩니다.
+- **CSV (items)**: 항목 1개 = 1행.
+  - "이름+계층만": `Path, DisplayName, ParentPath, Depth`
+  - "기본 정보" 이상: `Path, DisplayName, ClassName, ClassDisplayName,
+    InstanceGuid, ParentPath, HasGeometry, IsHidden, Depth`
 - **CSV (properties)**: 항목의 속성 1개 = 1행 (long format, 이후 pivot/조인이
   쉽도록). `ItemPath, InstanceGuid, CategoryName, CategoryDisplayName,
-  PropertyName, PropertyDisplayName, Value, DataType` — "계층만" 모드에서는
-  생성되지 않습니다.
+  PropertyName, PropertyDisplayName, Value, DataType` — "전체 속성" 모드에서만
+  생성됩니다.
+
+`ClassDisplayName`/`CategoryDisplayName`/속성 `DisplayName`은 Navisworks
+API가 한글 Windows에서 로컬라이즈 라벨을 깨진 인코딩(UTF-8 → CP949 오판독)
+으로 반환하는 문제가 있어, 내보내기 전에 자동으로 복구합니다
+(`TreeExportWriter.FixMojibake`).
 
 ## 빌드 & 배포
 
@@ -68,9 +85,12 @@ Windows에서 처음 빌드할 때 오류가 날 수 있습니다. 나머지 코
 
 ## 다음 단계 (제안)
 
-- [x] 속성 포함 여부 선택 (계층만 / 계층+속성)
+- [x] 내보내기 범위 3단계 선택 (이름만 / +기본정보 / +전체속성)
 - [x] 대용량 모델 대응을 위한 스트리밍 내보내기 (메모리에 트리 전체를 올리지 않음)
-- [ ] 더 세밀한 내보내기 옵션 다이얼로그 (JSON/CSV 개별 선택, 파일명 지정)
+- [x] 로컬라이즈 라벨 인코딩(mojibake) 자동 복구
+- [ ] 초대형 모델(수천만 항목, 속성 포함)의 결과 파일 자체가 수 GB로 커지는
+      문제 — 압축 저장(.gz), 필요한 속성만 필터링해서 내보내기, JSON 생략(CSV만)
+      등의 옵션 중 방향 결정 필요
 - [ ] 현재 선택된 항목만 내보내는 옵션 (전체 트리 대신)
 - [ ] 매우 깊은 트리 대응을 위한 재귀 → 반복(iterative) 순회 전환 (현재는 재귀
       호출 스택 깊이가 트리 깊이에 비례 - 일반적인 모델에서는 문제없음)

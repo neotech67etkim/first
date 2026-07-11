@@ -45,12 +45,15 @@ namespace NavisTreeExporter.Export
 
         public static void Export(
             Document document,
-            bool includeProperties,
+            ExportDetailLevel detailLevel,
             string jsonPath,
             string itemsCsvPath,
             string propertiesCsvPath,
             ExportProgressReporter progress)
         {
+            var includeBasicInfo = detailLevel != ExportDetailLevel.NamesOnly;
+            var includeProperties = detailLevel == ExportDetailLevel.HierarchyAndProperties;
+
             using (var jsonStream = new StreamWriter(jsonPath, false, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
             using (var jsonWriter = new JsonTextWriter(jsonStream) { Formatting = Formatting.Indented })
             using (var itemsCsv = new StreamWriter(itemsCsvPath, false, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true)))
@@ -58,9 +61,9 @@ namespace NavisTreeExporter.Export
                 ? new StreamWriter(propertiesCsvPath, false, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true))
                 : null)
             {
-                itemsCsv.WriteLine(string.Join(",",
-                    "Path", "DisplayName", "ClassName", "ClassDisplayName",
-                    "InstanceGuid", "ParentPath", "HasGeometry", "IsHidden", "Depth"));
+                itemsCsv.WriteLine(includeBasicInfo
+                    ? string.Join(",", "Path", "DisplayName", "ClassName", "ClassDisplayName", "InstanceGuid", "ParentPath", "HasGeometry", "IsHidden", "Depth")
+                    : string.Join(",", "Path", "DisplayName", "ParentPath", "Depth"));
 
                 propertiesCsv?.WriteLine(string.Join(",",
                     "ItemPath", "InstanceGuid", "CategoryName", "CategoryDisplayName",
@@ -86,7 +89,7 @@ namespace NavisTreeExporter.Export
 
                     if (rootItem == null) continue;
 
-                    WriteNode(rootItem, includeProperties, progress, jsonWriter, itemsCsv, propertiesCsv, parentPath: null, depth: 0);
+                    WriteNode(rootItem, includeBasicInfo, includeProperties, progress, jsonWriter, itemsCsv, propertiesCsv, parentPath: null, depth: 0);
                 }
 
                 jsonWriter.WriteEndArray();
@@ -96,6 +99,7 @@ namespace NavisTreeExporter.Export
 
         private static void WriteNode(
             ModelItem item,
+            bool includeBasicInfo,
             bool includeProperties,
             ExportProgressReporter progress,
             JsonTextWriter jsonWriter,
@@ -114,11 +118,14 @@ namespace NavisTreeExporter.Export
             try
             {
                 displayName = item.DisplayName;
-                className = item.ClassName;
-                classDisplayName = FixMojibake(item.ClassDisplayName);
-                instanceGuid = item.InstanceGuid == Guid.Empty ? null : item.InstanceGuid.ToString();
-                hasGeometry = item.HasGeometry;
-                isHidden = item.IsHidden;
+                if (includeBasicInfo)
+                {
+                    className = item.ClassName;
+                    classDisplayName = FixMojibake(item.ClassDisplayName);
+                    instanceGuid = item.InstanceGuid == Guid.Empty ? null : item.InstanceGuid.ToString();
+                    hasGeometry = item.HasGeometry;
+                    isHidden = item.IsHidden;
+                }
             }
             catch (Exception)
             {
@@ -130,17 +137,22 @@ namespace NavisTreeExporter.Export
 
             jsonWriter.WriteStartObject();
             WriteJsonString(jsonWriter, "DisplayName", displayName);
-            WriteJsonString(jsonWriter, "ClassName", className);
-            WriteJsonString(jsonWriter, "ClassDisplayName", classDisplayName);
-            WriteJsonString(jsonWriter, "InstanceGuid", instanceGuid);
-            jsonWriter.WritePropertyName("HasGeometry");
-            jsonWriter.WriteValue(hasGeometry);
-            jsonWriter.WritePropertyName("IsHidden");
-            jsonWriter.WriteValue(isHidden);
+            if (includeBasicInfo)
+            {
+                WriteJsonString(jsonWriter, "ClassName", className);
+                WriteJsonString(jsonWriter, "ClassDisplayName", classDisplayName);
+                WriteJsonString(jsonWriter, "InstanceGuid", instanceGuid);
+                jsonWriter.WritePropertyName("HasGeometry");
+                jsonWriter.WriteValue(hasGeometry);
+                jsonWriter.WritePropertyName("IsHidden");
+                jsonWriter.WriteValue(isHidden);
+            }
 
-            itemsCsv.WriteLine(string.Join(",",
-                CsvEscape(path), CsvEscape(displayName), CsvEscape(className), CsvEscape(classDisplayName),
-                CsvEscape(instanceGuid), CsvEscape(parentPath), hasGeometry, isHidden, depth));
+            itemsCsv.WriteLine(includeBasicInfo
+                ? string.Join(",",
+                    CsvEscape(path), CsvEscape(displayName), CsvEscape(className), CsvEscape(classDisplayName),
+                    CsvEscape(instanceGuid), CsvEscape(parentPath), hasGeometry, isHidden, depth)
+                : string.Join(",", CsvEscape(path), CsvEscape(displayName), CsvEscape(parentPath), depth));
 
             if (includeProperties)
             {
@@ -196,7 +208,7 @@ namespace NavisTreeExporter.Export
 
             foreach (ModelItem child in SafeGetChildren(item))
             {
-                WriteNode(child, includeProperties, progress, jsonWriter, itemsCsv, propertiesCsv, path, depth + 1);
+                WriteNode(child, includeBasicInfo, includeProperties, progress, jsonWriter, itemsCsv, propertiesCsv, path, depth + 1);
             }
 
             jsonWriter.WriteEndArray();
