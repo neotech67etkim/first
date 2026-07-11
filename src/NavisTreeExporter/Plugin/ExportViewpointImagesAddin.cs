@@ -42,6 +42,11 @@ namespace NavisTreeExporter.Plugin
         [DllImport("user32.dll")]
         private static extern bool IsWindowVisible(IntPtr hWnd);
 
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
+
+        private const uint GwChild = 5;
+
         private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
         [StructLayout(LayoutKind.Sequential)]
@@ -249,11 +254,15 @@ namespace NavisTreeExporter.Plugin
         }
 
         /// <summary>
-        /// Finds the largest visible window under <paramref name="parent"/>
-        /// (recursing through all descendants, not just direct children).
-        /// Ribbon/menus and every docked pane are reliably smaller than the
-        /// 3D viewport, so "largest" is a decent stand-in for "the viewport"
-        /// without needing to know its exact window class name.
+        /// Finds the largest visible *leaf* window (no child windows of its
+        /// own) under <paramref name="parent"/>, recursing through all
+        /// descendants. Docking frameworks typically nest the 3D viewport's
+        /// actual rendering surface a few levels deep inside container
+        /// windows that also host the docked panes as siblings - comparing
+        /// every visible window regardless of depth picked one of those
+        /// outer containers instead (still including both side panels).
+        /// Restricting to leaf windows targets the actual rendering surface,
+        /// which reliably has no children of its own.
         /// </summary>
         private static RECT? FindLargestVisibleDescendant(IntPtr parent)
         {
@@ -263,7 +272,7 @@ namespace NavisTreeExporter.Plugin
             EnumWindowsProc visit = null;
             visit = (hWnd, lParam) =>
             {
-                if (IsWindowVisible(hWnd) && GetWindowRect(hWnd, out var rect))
+                if (IsWindowVisible(hWnd) && GetWindow(hWnd, GwChild) == IntPtr.Zero && GetWindowRect(hWnd, out var rect))
                 {
                     long area = (long)(rect.Right - rect.Left) * (rect.Bottom - rect.Top);
                     if (area > largestArea)
