@@ -140,9 +140,7 @@ namespace NavisTreeExporter.Plugin
         private static string BuildBaseFileName(Document document)
         {
             var title = string.IsNullOrWhiteSpace(document.Title) ? "NavisworksTree" : Path.GetFileNameWithoutExtension(document.Title);
-            var invalidChars = Path.GetInvalidFileNameChars();
-            var safeTitleChars = Array.ConvertAll(title.ToCharArray(), c => Array.IndexOf(invalidChars, c) >= 0 ? '_' : c);
-            var safeTitle = new string(safeTitleChars);
+            var safeTitle = FileNameSanitizer.Sanitize(title, "NavisworksTree");
             return $"{safeTitle}_{DateTime.Now:yyyyMMdd_HHmmss}";
         }
     }

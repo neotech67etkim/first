@@ -23,9 +23,9 @@ Navisworks는 시작 시 `Plugins` 폴더 아래의 서브폴더들을 스캔해
    ```
 
 4. Navisworks를 (다시) 실행하면 리본의 **Add-ins** 탭 아래 **Export Selection
-   Tree** 버튼이 나타납니다.
+   Tree**, **Export Viewpoint Images** 버튼이 나타납니다.
 
-## 사용법
+## 사용법: Export Selection Tree
 
 1. NWD/NWC/모델 파일을 Navisworks에서 엽니다.
 2. **Add-ins** 탭의 **Export Selection Tree** 버튼을 클릭합니다.
@@ -44,3 +44,13 @@ Navisworks는 시작 시 `Plugins` 폴더 아래의 서브폴더들을 스캔해
    - `<문서명>_<타임스탬프>_items.csv` — 트리 계층 구조
    - `<문서명>_<타임스탬프>_properties.csv` — 항목별 속성 목록 (long format,
      "전체 속성" 선택 시에만 생성)
+
+## 사용법: Export Viewpoint Images
+
+1. 저장된 관측점(Saved Viewpoints)이 있는 모델을 Navisworks에서 엽니다.
+2. **Add-ins** 탭의 **Export Viewpoint Images** 버튼을 클릭합니다.
+3. 이미지를 저장할 폴더를 선택합니다.
+4. 각 관측점마다 카메라를 이동시키고 화면을 캡처하는 동안, Navisworks 창이
+   화면에 보이는 상태(최소화 X)를 유지해 주세요.
+5. 관측점 이름별로 PNG 파일이 생성됩니다 (이름이 겹치면 `_1`, `_2`처럼 뒤에
+   번호가 붙습니다).
