@@ -17,10 +17,14 @@ namespace NavisTreeExporter.Plugin
     /// window to stay visible/unminimized for the duration (it's a real
     /// screen capture, not an off-screen render).
     ///
-    /// Captures the whole main window, then crops to the 3D viewport's
-    /// rectangle - no window hiding/showing involved, since that turned out
-    /// to be risky (an earlier attempt at hiding docked panels ended up
-    /// hiding an essential frame window and broke the whole layout).
+    /// Captures the whole main window, then crops the result - no window
+    /// hiding/showing involved (an earlier attempt at hiding docked panels
+    /// ended up hiding an essential frame window and broke the whole
+    /// layout). The Selection Tree / Saved Viewpoints panels are drawn as an
+    /// overlay directly on top of the 3D viewport's own window region rather
+    /// than shrinking it, so the crop rectangle is narrowed using those
+    /// panels' own window bounds (read-only lookups) instead of trusting the
+    /// viewport's rect alone.
     ///
     /// NOTE: the saved-viewpoint-restoration call
     /// (Document.CurrentViewpoint.CopyFrom) is unverified against the real
@@ -45,7 +49,16 @@ namespace NavisTreeExporter.Plugin
         [DllImport("user32.dll")]
         private static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
 
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        private static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder lpString, int nMaxCount);
+
         private const uint GwChild = 5;
+
+        // Docked panels whose window bounds are used to narrow the capture
+        // crop away from - they overlay the 3D viewport's own screen region,
+        // so simply cropping to the viewport's rect isn't enough. Add more
+        // titles here if other panels need excluding too.
+        private static readonly string[] PanelTitlesToExclude = { "선택 트리", "저장된 관측점" };
 
         private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
@@ -99,12 +112,16 @@ namespace NavisTreeExporter.Plugin
                 var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
                 // Figure out where the 3D viewport is just once, up front -
-                // this is read-only (no hiding/showing), so it can't break
-                // the window layout. It's the largest visible sub-window
-                // under the main window, since ribbon/menus and every docked
-                // pane are reliably smaller.
+                // this is entirely read-only (no hiding/showing), so it
+                // can't break the window layout. Start from the largest
+                // visible leaf window, then narrow it away from any docked
+                // panel that overlaps it horizontally.
                 var mainHandle = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
                 RECT? viewportRect = mainHandle != IntPtr.Zero ? FindLargestVisibleDescendant(mainHandle) : null;
+                if (mainHandle != IntPtr.Zero && viewportRect != null)
+                {
+                    viewportRect = NarrowAwayFromPanels(mainHandle, viewportRect.Value);
+                }
 
                 try
                 {
@@ -260,9 +277,8 @@ namespace NavisTreeExporter.Plugin
         /// actual rendering surface a few levels deep inside container
         /// windows that also host the docked panes as siblings - comparing
         /// every visible window regardless of depth picked one of those
-        /// outer containers instead (still including both side panels).
-        /// Restricting to leaf windows targets the actual rendering surface,
-        /// which reliably has no children of its own.
+        /// outer containers instead. Restricting to leaf windows targets the
+        /// actual rendering surface, which reliably has no children of its own.
         /// </summary>
         private static RECT? FindLargestVisibleDescendant(IntPtr parent)
         {
@@ -291,6 +307,65 @@ namespace NavisTreeExporter.Plugin
 
             EnumChildWindows(parent, visit, IntPtr.Zero);
             return largest;
+        }
+
+        /// <summary>
+        /// Pulls the left/right edges of <paramref name="viewport"/> in to
+        /// exclude any panel in <see cref="PanelTitlesToExclude"/> that
+        /// overlaps it - whichever side of the viewport's center each panel
+        /// sits on.
+        /// </summary>
+        private static RECT NarrowAwayFromPanels(IntPtr mainHandle, RECT viewport)
+        {
+            var centerX = (viewport.Left + viewport.Right) / 2;
+
+            foreach (var title in PanelTitlesToExclude)
+            {
+                var panelRect = FindWindowRectByTitle(mainHandle, title);
+                if (panelRect == null) continue;
+
+                var p = panelRect.Value;
+                var panelCenterX = (p.Left + p.Right) / 2;
+
+                if (panelCenterX < centerX)
+                {
+                    viewport.Left = Math.Max(viewport.Left, p.Right);
+                }
+                else
+                {
+                    viewport.Right = Math.Min(viewport.Right, p.Left);
+                }
+            }
+
+            return viewport;
+        }
+
+        private static RECT? FindWindowRectByTitle(IntPtr parent, string title)
+        {
+            RECT? found = null;
+
+            EnumWindowsProc visit = null;
+            visit = (hWnd, lParam) =>
+            {
+                if (found == null && IsWindowVisible(hWnd) && GetWindowTitle(hWnd) == title && GetWindowRect(hWnd, out var rect))
+                {
+                    found = rect;
+                    return true;
+                }
+
+                EnumChildWindows(hWnd, visit, IntPtr.Zero);
+                return true;
+            };
+
+            EnumChildWindows(parent, visit, IntPtr.Zero);
+            return found;
+        }
+
+        private static string GetWindowTitle(IntPtr hWnd)
+        {
+            var buffer = new System.Text.StringBuilder(256);
+            GetWindowText(hWnd, buffer, buffer.Capacity);
+            return buffer.ToString();
         }
     }
 }
