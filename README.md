@@ -226,7 +226,9 @@ L60_D42_S60_MyViewpointName_stable1.8s.png
 
 Windows 작업 스케줄러에 등록해서 매일 실행하려면
 [`tools/Run-DailyViewpointExport.ps1`](./tools/Run-DailyViewpointExport.ps1)를
-사용하세요. 지정한 폴더에서 `*.nwf`/`*.nwd` 중 가장 최근에 수정된 파일을 찾아
+사용하세요. 지정한 폴더에서 `*.nwf` 중 가장 최근에 수정된 파일을 찾아
+(`.nwd`는 필요한 속성이 빠져있어 기본적으로 제외됩니다 — 필요하면
+`-FilePatterns`로 다시 포함시킬 수 있습니다)
 Navisworks를 실행하고, 위 환경 변수를 설정해준 뒤 종료를 기다립니다
 (파일 상단 주석에 `schtasks` 등록 예시 포함).
 

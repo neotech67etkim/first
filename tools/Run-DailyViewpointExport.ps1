@@ -6,9 +6,10 @@
 
 .DESCRIPTION
     Picks the most recently modified file in -SourceFolder matching any of
-    -FilePatterns (both *.nwf and *.nwd by default - .nwf is a Navisworks
-    federated/set file referencing the source models, .nwd is a published
-    standalone file; either can be opened directly), then starts Navisworks
+    -FilePatterns (*.nwf only by default - a Navisworks federated/set file
+    referencing the source models; *.nwd, a published standalone file, is
+    excluded by default since it's missing properties present in the .nwf),
+    then starts Navisworks
     (Roamer.exe) with that file, after setting the environment variables
     the auto-mode watcher plugin reads: NAVIS_AUTO_EXPORT_IMAGES,
     NAVIS_AUTO_OUTPUT_DIR, NAVIS_AUTO_WAIT_SECONDS,
@@ -38,8 +39,9 @@
     Folder to search for the file to open.
 
 .PARAMETER FilePatterns
-    Filename filters within SourceFolder (default "*.nwf", "*.nwd" - the
-    newest file across all patterns combined is picked).
+    Filename filters within SourceFolder (default "*.nwf" only - the
+    newest file across all patterns combined is picked if you override
+    this to include more than one).
 
 .PARAMETER OutputDir
     Base folder for exported images. Each run creates its own timestamped
@@ -88,7 +90,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$SourceFolder,
 
-    [string[]]$FilePatterns = @("*.nwf", "*.nwd"),
+    [string[]]$FilePatterns = @("*.nwf"),
 
     [Parameter(Mandatory = $true)]
     [string]$OutputDir,
