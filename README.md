@@ -116,7 +116,7 @@ Navisworks를 실행하는 프로세스(예: 작업 스케줄러가 띄우는 �
 | `NAVIS_AUTO_OUTPUT_DIR` | 예 | 이미지를 저장할 상위 폴더 |
 | `NAVIS_AUTO_WAIT_SECONDS` | 아니오 | 관측점당 화면이 안정될 때까지 기다리는 **최대** 시간(초). 기본 15초 |
 | `NAVIS_AUTO_INITIAL_WAIT_SECONDS` | 아니오 | 로딩 대화상자가 사라진 뒤 화면이 안정될 때까지 기다리는 **최대** 시간(초). 기본 60초 |
-| `NAVIS_AUTO_MIN_INITIAL_WAIT_SECONDS` | 아니오 | 문서가 열린 직후, 로딩 대화상자 감지를 시작하기 전에 **무조건** 기다리는 시간(초). 기본 20초 |
+| `NAVIS_AUTO_MIN_INITIAL_WAIT_SECONDS` | 아니오 | 문서가 열린 직후, 로딩 대화상자 감지를 시작하기 전에 **무조건** 기다리는 시간(초). 기본 60초 |
 
 동작 방식:
 

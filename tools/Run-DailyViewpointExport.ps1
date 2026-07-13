@@ -56,7 +56,7 @@
 
 .PARAMETER MinInitialWaitSeconds
     Unconditional minimum wait (seconds) applied right after the document
-    opens, before any of the above settling detection starts (default 20).
+    opens, before any of the above settling detection starts (default 60).
     Unlike InitialWaitSeconds this is always taken in full - it exists
     because there's a real gap between the document opening and
     Navisworks' own loading dialog actually appearing, and checking for
@@ -96,7 +96,7 @@ param(
 
     [int]$InitialWaitSeconds = 60,
 
-    [int]$MinInitialWaitSeconds = 20,
+    [int]$MinInitialWaitSeconds = 60,
 
     [int]$TimeoutMinutes = 20
 )

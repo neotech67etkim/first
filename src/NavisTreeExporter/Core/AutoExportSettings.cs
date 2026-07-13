@@ -13,7 +13,7 @@ namespace NavisTreeExporter.Core
     {
         private const int DefaultWaitSeconds = 15;
         private const int DefaultInitialWaitSeconds = 60;
-        private const int DefaultMinInitialWaitSeconds = 20;
+        private const int DefaultMinInitialWaitSeconds = 60;
 
         public string OutputDir { get; }
 
