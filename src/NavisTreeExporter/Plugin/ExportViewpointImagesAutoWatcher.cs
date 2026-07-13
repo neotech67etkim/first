@@ -24,16 +24,19 @@ namespace NavisTreeExporter.Plugin
     /// ViewpointCaptureService.RunAutoExport, shared with the interactive
     /// button's code.
     ///
-    /// NOTE: EventWatcherPlugin as the eager-instantiation mechanism, and
-    /// document.Models.Count as the "is a document loaded" signal, are both
-    /// unverified against the real SDK - same caveat as the rest of this
-    /// plugin, subject to adjustment from real build/runtime errors.
+    /// NOTE: EventWatcherPlugin as the eager-instantiation mechanism,
+    /// document.Models.Count as the "is a document loaded" signal, and the
+    /// "작업 중" loading-dialog title prefix used to detect when the file
+    /// has actually finished loading (see ViewpointCaptureService) are all
+    /// unverified against the real SDK/locale - same caveat as the rest of
+    /// this plugin, subject to adjustment from real build/runtime errors.
     /// </summary>
     [Plugin("NavisTreeExporter.ExportViewpointImagesAutoWatcher", "NTE",
         DisplayName = "Export Viewpoint Images Auto Watcher")]
     public class ExportViewpointImagesAutoWatcher : EventWatcherPlugin
     {
         private const int AutoModeTimeoutMinutes = 10;
+        private const int LoadingDialogTimeoutMinutes = 20;
 
         private System.Windows.Forms.Timer _autoTimer;
         private AutoExportSettings _autoSettings;
@@ -104,9 +107,22 @@ namespace NavisTreeExporter.Plugin
             var mainHandle = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
             ViewpointCaptureService.BringToForeground(mainHandle);
 
-            // Geometry can still be streaming/rendering in for a while after
-            // Models.Count first becomes nonzero, especially on heavier
-            // models - give it a fixed grace period before the first capture.
+            // Models.Count > 0 fires well before Navisworks' own file-loading
+            // progress dialog ("작업 중... (NN.N%)") actually closes on
+            // larger models - wait for that dialog to disappear instead of
+            // guessing a fixed delay, since load time varies a lot by file
+            // size. Falls back to just proceeding if it somehow never shows
+            // up or never closes within the timeout, so a detection miss
+            // can't hang the run forever.
+            var loadingTimeoutAt = DateTime.UtcNow.AddMinutes(LoadingDialogTimeoutMinutes);
+            while (ViewpointCaptureService.IsLoadingDialogVisible() && DateTime.UtcNow < loadingTimeoutAt)
+            {
+                System.Windows.Forms.Application.DoEvents();
+                System.Threading.Thread.Sleep(250);
+            }
+
+            // Extra grace period after the loading dialog closes - rendering
+            // can still catch up for a moment even once loading itself is done.
             var waitUntil = DateTime.UtcNow.AddSeconds(_autoSettings.InitialWaitSeconds);
             while (DateTime.UtcNow < waitUntil)
             {

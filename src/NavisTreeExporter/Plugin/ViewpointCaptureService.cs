@@ -45,6 +45,12 @@ namespace NavisTreeExporter.Plugin
         [DllImport("user32.dll")]
         private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
 
+        [DllImport("user32.dll")]
+        private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
         private static readonly IntPtr HwndTopmost = new IntPtr(-1);
         private static readonly IntPtr HwndNoTopmost = new IntPtr(-2);
 
@@ -53,6 +59,13 @@ namespace NavisTreeExporter.Plugin
         private const uint SwpNoMove = 0x0002;
         private const uint SwpNoSize = 0x0001;
         private const uint SwpShowWindow = 0x0040;
+
+        // Navisworks shows a small progress dialog titled e.g. "작업 중...
+        // (29.0%)" (percentage changes as it updates) while it's actually
+        // streaming/loading a file - document.Models.Count > 0 becomes true
+        // well before this dialog closes on larger models, so it's a much
+        // better "is loading actually done" signal than a fixed delay.
+        private const string LoadingDialogTitlePrefix = "작업 중";
 
         // Docked panels whose window bounds are used to narrow the capture
         // crop away from - they overlay the 3D viewport's own screen region,
@@ -122,6 +135,35 @@ namespace NavisTreeExporter.Plugin
                 // Best-effort - a failed foreground/restore call shouldn't
                 // abort the whole run.
             }
+        }
+
+        /// <summary>
+        /// True if a visible top-level window belonging to this process has
+        /// a title starting with "작업 중" (Navisworks' file-loading
+        /// progress dialog). Checks all of this process's top-level windows
+        /// rather than just descendants of the main window, since the
+        /// progress dialog may or may not be a child of it.
+        /// </summary>
+        internal static bool IsLoadingDialogVisible()
+        {
+            var currentPid = (uint)System.Diagnostics.Process.GetCurrentProcess().Id;
+            var found = false;
+
+            EnumWindowsProc visit = (hWnd, lParam) =>
+            {
+                GetWindowThreadProcessId(hWnd, out var pid);
+                if (pid == currentPid && IsWindowVisible(hWnd) &&
+                    GetWindowTitle(hWnd).StartsWith(LoadingDialogTitlePrefix, StringComparison.Ordinal))
+                {
+                    found = true;
+                    return false; // stop enumerating, we have our answer
+                }
+
+                return true;
+            };
+
+            EnumWindows(visit, IntPtr.Zero);
+            return found;
         }
 
         /// <summary>
