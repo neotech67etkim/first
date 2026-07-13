@@ -33,7 +33,17 @@ namespace NavisTreeExporter.Plugin
         [DllImport("user32.dll", CharSet = CharSet.Auto)]
         private static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder lpString, int nMaxCount);
 
+        [DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        [DllImport("user32.dll")]
+        private static extern bool IsIconic(IntPtr hWnd);
+
         private const uint GwChild = 5;
+        private const int SwRestore = 9;
 
         // Docked panels whose window bounds are used to narrow the capture
         // crop away from - they overlay the 3D viewport's own screen region,
@@ -50,6 +60,41 @@ namespace NavisTreeExporter.Plugin
             public int Top;
             public int Right;
             public int Bottom;
+        }
+
+        /// <summary>
+        /// Restores the window if minimized and brings it to the
+        /// foreground. Auto mode captures whatever is physically on screen
+        /// (Graphics.CopyFromScreen captures screen pixels, not a specific
+        /// window's content), so if Navisworks isn't the frontmost window -
+        /// still starting up behind other windows, a notification popup
+        /// stealing focus, etc. - the capture ends up showing whatever is
+        /// actually on top instead, which is what was happening when a
+        /// screenshot came back showing a different monitor entirely.
+        /// Multi-monitor itself isn't a separate concern: GetWindowRect and
+        /// CopyFromScreen both operate in the same virtual-screen
+        /// coordinate space (negative coordinates for monitors to the
+        /// left/above the primary are handled fine) as long as the window
+        /// is actually visible on top at that location.
+        /// </summary>
+        internal static void BringToForeground(IntPtr hWnd)
+        {
+            if (hWnd == IntPtr.Zero) return;
+
+            try
+            {
+                if (IsIconic(hWnd))
+                {
+                    ShowWindow(hWnd, SwRestore);
+                }
+
+                SetForegroundWindow(hWnd);
+            }
+            catch (Exception)
+            {
+                // Best-effort - a failed foreground/restore call shouldn't
+                // abort the whole run.
+            }
         }
 
         /// <summary>
@@ -242,6 +287,7 @@ namespace NavisTreeExporter.Plugin
                 }
                 else
                 {
+                    BringToForeground(mainHandle);
                     var viewportRect = ComputeViewportRect(mainHandle);
                     var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -261,6 +307,12 @@ namespace NavisTreeExporter.Plugin
 
                         System.Windows.Forms.Application.DoEvents();
                         System.Threading.Thread.Sleep(settings.WaitSeconds * 1000);
+                        System.Windows.Forms.Application.DoEvents();
+
+                        // Re-assert foreground right before capturing - the wait above
+                        // is long enough for something else (a notification popup, etc.)
+                        // to have stolen focus in the meantime.
+                        BringToForeground(mainHandle);
                         System.Windows.Forms.Application.DoEvents();
 
                         var fileName = FileNameSanitizer.Sanitize(path, "Viewpoint" + i);

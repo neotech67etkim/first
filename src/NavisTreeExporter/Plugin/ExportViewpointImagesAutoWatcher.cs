@@ -95,6 +95,15 @@ namespace NavisTreeExporter.Plugin
 
             _autoTimer.Stop();
 
+            // Bring the window to the front right away - it needs to stay
+            // frontmost/unoccluded for the whole run since the capture is a
+            // real screen grab (Graphics.CopyFromScreen), not an off-screen
+            // render. Otherwise geometry can keep loading behind other
+            // windows and the eventual screenshot shows whatever else was
+            // on top instead of the model.
+            var mainHandle = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
+            ViewpointCaptureService.BringToForeground(mainHandle);
+
             // Geometry can still be streaming/rendering in for a while after
             // Models.Count first becomes nonzero, especially on heavier
             // models - give it a fixed grace period before the first capture.
