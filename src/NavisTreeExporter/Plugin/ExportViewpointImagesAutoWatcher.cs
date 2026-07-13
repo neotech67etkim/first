@@ -98,6 +98,16 @@ namespace NavisTreeExporter.Plugin
 
             _autoTimer.Stop();
 
+            // Every stage below gets a timestamped entry here, and the
+            // whole list is handed to RunAutoExport, which appends its own
+            // per-viewpoint entries and writes it all out as one continuous
+            // _export_log.txt - so a run's whole timeline (not just the
+            // per-viewpoint part) is visible in one place to see exactly
+            // where it's spending time or going wrong.
+            var log = new System.Collections.Generic.List<string>();
+            var runStopwatch = System.Diagnostics.Stopwatch.StartNew();
+            log.Add($"[T+{runStopwatch.Elapsed.TotalSeconds:0.0}s] Document detected (Models.Count > 0).");
+
             // Bring the window to the front right away - it needs to stay
             // frontmost/unoccluded for the whole run since the capture is a
             // real screen grab (Graphics.CopyFromScreen), not an off-screen
@@ -105,6 +115,7 @@ namespace NavisTreeExporter.Plugin
             // windows and the eventual screenshot shows whatever else was
             // on top instead of the model.
             var mainHandle = ViewpointCaptureService.FindNavisworksMainWindow();
+            log.Add($"[T+{runStopwatch.Elapsed.TotalSeconds:0.0}s] Main window: {ViewpointCaptureService.DescribeWindow(mainHandle)}");
             ViewpointCaptureService.BringToForeground(mainHandle);
 
             // Unconditional floor before checking for the loading dialog at
@@ -117,6 +128,9 @@ namespace NavisTreeExporter.Plugin
             // this plain sleep (not stability-based, always taken in full)
             // outlasts that gap so the reactive dialog-wait below only
             // starts once the dialog has had a real chance to show up.
+            log.Add($"[T+{runStopwatch.Elapsed.TotalSeconds:0.0}s] Starting mandatory min-wait " +
+                $"({_autoSettings.MinInitialWaitSeconds}s, before checking for the loading dialog)...");
+            var minWaitStopwatch = System.Diagnostics.Stopwatch.StartNew();
             var minWaitUntil = DateTime.UtcNow.AddSeconds(_autoSettings.MinInitialWaitSeconds);
             while (DateTime.UtcNow < minWaitUntil)
             {
@@ -124,6 +138,7 @@ namespace NavisTreeExporter.Plugin
                 System.Windows.Forms.Application.DoEvents();
                 System.Threading.Thread.Sleep(500);
             }
+            log.Add($"[T+{runStopwatch.Elapsed.TotalSeconds:0.0}s] Min-wait done (actual {minWaitStopwatch.Elapsed.TotalSeconds:0.0}s).");
 
             // Models.Count > 0 fires well before Navisworks' own file-loading
             // progress dialog ("작업 중... (NN.N%)") actually closes on
@@ -132,12 +147,24 @@ namespace NavisTreeExporter.Plugin
             // size. Falls back to just proceeding if it somehow never shows
             // up or never closes within the timeout, so a detection miss
             // can't hang the run forever.
+            log.Add($"[T+{runStopwatch.Elapsed.TotalSeconds:0.0}s] Watching for the loading dialog ('작업 중...') to close " +
+                $"(timeout {LoadingDialogTimeoutMinutes}m)...");
+            var dialogStopwatch = System.Diagnostics.Stopwatch.StartNew();
+            var dialogWasSeenVisible = false;
             var loadingTimeoutAt = DateTime.UtcNow.AddMinutes(LoadingDialogTimeoutMinutes);
-            while (ViewpointCaptureService.IsLoadingDialogVisible() && DateTime.UtcNow < loadingTimeoutAt)
+            while (true)
             {
+                var visible = ViewpointCaptureService.IsLoadingDialogVisible();
+                if (visible) dialogWasSeenVisible = true;
+                if (!visible || DateTime.UtcNow >= loadingTimeoutAt) break;
+
                 System.Windows.Forms.Application.DoEvents();
                 System.Threading.Thread.Sleep(250);
             }
+            log.Add(dialogWasSeenVisible
+                ? $"[T+{runStopwatch.Elapsed.TotalSeconds:0.0}s] Loading dialog closed (was visible for {dialogStopwatch.Elapsed.TotalSeconds:0.0}s)."
+                : $"[T+{runStopwatch.Elapsed.TotalSeconds:0.0}s] Loading dialog was never seen visible " +
+                  $"(checked for {dialogStopwatch.Elapsed.TotalSeconds:0.0}s - either it never showed, or it closed before the min-wait above finished).");
 
             // Extra grace period after the loading dialog closes - rendering
             // can still catch up for a moment even once loading itself is
@@ -150,6 +177,9 @@ namespace NavisTreeExporter.Plugin
             // seconds at a time mid-load, so no streak length reliably
             // told loading-paused apart from loading-done. Unconditional
             // flat wait instead, same as the pre-dialog floor above.
+            log.Add($"[T+{runStopwatch.Elapsed.TotalSeconds:0.0}s] Starting post-dialog wait " +
+                $"({_autoSettings.InitialWaitSeconds}s, flat/unconditional)...");
+            var settleStopwatch = System.Diagnostics.Stopwatch.StartNew();
             var settleUntil = DateTime.UtcNow.AddSeconds(_autoSettings.InitialWaitSeconds);
             while (DateTime.UtcNow < settleUntil)
             {
@@ -157,8 +187,20 @@ namespace NavisTreeExporter.Plugin
                 System.Windows.Forms.Application.DoEvents();
                 System.Threading.Thread.Sleep(500);
             }
+            log.Add($"[T+{runStopwatch.Elapsed.TotalSeconds:0.0}s] Post-dialog wait done " +
+                $"(actual {settleStopwatch.Elapsed.TotalSeconds:0.0}s). Starting viewpoint loop.");
 
-            ViewpointCaptureService.RunAutoExport(document, _autoSettings);
+            // Compact summary of the three wait stages above, prepended to
+            // every saved image's filename in this run - lets the timing
+            // be checked at a glance from a folder listing/thumbnail view,
+            // not just from the log file. L=min-wait, D=dialog-wait
+            // (actual duration, or "none" if never seen visible),
+            // S=post-dialog settle wait.
+            var fileNamePrefix = "L" + (int)minWaitStopwatch.Elapsed.TotalSeconds + "_" +
+                (dialogWasSeenVisible ? "D" + (int)dialogStopwatch.Elapsed.TotalSeconds : "Dnone") + "_" +
+                "S" + (int)settleStopwatch.Elapsed.TotalSeconds + "_";
+
+            ViewpointCaptureService.RunAutoExport(document, _autoSettings, mainHandle, log, fileNamePrefix);
         }
     }
 }

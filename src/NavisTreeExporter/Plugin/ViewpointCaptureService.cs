@@ -294,21 +294,63 @@ namespace NavisTreeExporter.Plugin
         private const int PerViewpointRequiredStableStreak = 4; // ~2s of no change at 500ms/check
         private const int PerViewpointCheckIntervalMs = 500;
 
+        private readonly struct StableCaptureRaw
+        {
+            internal System.Drawing.Bitmap Bitmap { get; }
+            internal double ElapsedSeconds { get; }
+            internal bool Stabilized { get; }
+            internal int FinalStreak { get; }
+
+            internal StableCaptureRaw(System.Drawing.Bitmap bitmap, double elapsedSeconds, bool stabilized, int finalStreak)
+            {
+                Bitmap = bitmap;
+                ElapsedSeconds = elapsedSeconds;
+                Stabilized = stabilized;
+                FinalStreak = finalStreak;
+            }
+        }
+
+        /// <summary>
+        /// Result of CaptureWhenStable - includes enough to log or encode
+        /// into the saved filename how the capture actually went (adaptive
+        /// waits are opaque otherwise, and the exact behavior has needed
+        /// several rounds of real-run adjustment already).
+        /// </summary>
+        internal readonly struct CaptureOutcome
+        {
+            internal bool Success { get; }
+            internal string SavedPath { get; }
+            internal double ElapsedSeconds { get; }
+            internal bool Stabilized { get; }
+            internal int FinalStreak { get; }
+
+            internal CaptureOutcome(bool success, string savedPath, double elapsedSeconds, bool stabilized, int finalStreak)
+            {
+                Success = success;
+                SavedPath = savedPath;
+                ElapsedSeconds = elapsedSeconds;
+                Stabilized = stabilized;
+                FinalStreak = finalStreak;
+            }
+        }
+
         /// <summary>
         /// Repeatedly captures the viewport (re-asserting foreground each
         /// time, in case something stole focus mid-wait) until
         /// <paramref name="requiredStableStreak"/> consecutive captures in a
         /// row all look the same, or <paramref name="maxWaitSeconds"/>
-        /// elapses - whichever comes first - and returns the last capture.
-        /// Adapts to how long loading/rendering actually takes instead of
-        /// guessing a fixed wait. Comparison is done on a small downscaled
-        /// thumbnail rather than pixel-for-pixel, both for speed and to
-        /// tolerate tiny rendering/anti-aliasing jitter between two frames
-        /// of an otherwise-static view. Caller owns the returned bitmap
-        /// (may be null if capture never succeeded even once).
+        /// elapses - whichever comes first - and returns the last capture
+        /// plus timing/outcome diagnostics. Adapts to how long
+        /// loading/rendering actually takes instead of guessing a fixed
+        /// wait. Comparison is done on a small downscaled thumbnail rather
+        /// than pixel-for-pixel, both for speed and to tolerate tiny
+        /// rendering/anti-aliasing jitter between two frames of an
+        /// otherwise-static view. Caller owns the returned bitmap (may be
+        /// null if capture never succeeded even once).
         /// </summary>
-        private static System.Drawing.Bitmap CaptureStableBitmap(IntPtr mainHandle, RECT? viewportRect, int maxWaitSeconds, int requiredStableStreak, int checkIntervalMs)
+        private static StableCaptureRaw CaptureStable(IntPtr mainHandle, RECT? viewportRect, int maxWaitSeconds, int requiredStableStreak, int checkIntervalMs)
         {
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             var deadline = DateTime.UtcNow.AddSeconds(maxWaitSeconds);
             byte[] previousThumbprint = null;
             System.Drawing.Bitmap previousBitmap = null;
@@ -321,7 +363,8 @@ namespace NavisTreeExporter.Plugin
 
                 if (current == null)
                 {
-                    return previousBitmap; // best-effort: whatever we last managed to capture, if anything
+                    // Best-effort: whatever we last managed to capture, if anything.
+                    return new StableCaptureRaw(previousBitmap, stopwatch.Elapsed.TotalSeconds, false, stableStreak);
                 }
 
                 var currentThumbprint = ComputeThumbprint(current);
@@ -334,7 +377,7 @@ namespace NavisTreeExporter.Plugin
                 if (isStable || timedOut)
                 {
                     previousBitmap?.Dispose();
-                    return current;
+                    return new StableCaptureRaw(current, stopwatch.Elapsed.TotalSeconds, isStable, stableStreak);
                 }
 
                 previousBitmap?.Dispose();
@@ -347,17 +390,31 @@ namespace NavisTreeExporter.Plugin
         }
 
         /// <summary>
-        /// Waits for the viewport to stop changing (see CaptureStableBitmap)
-        /// and saves that capture - the auto-mode replacement for a fixed
-        /// per-viewpoint wait.
+        /// Waits for the viewport to stop changing (see CaptureStable) and
+        /// saves that capture - the auto-mode replacement for a fixed
+        /// per-viewpoint wait. The saved filename is
+        /// "&lt;baseFileName&gt;_stableN.Ns.png" if it actually reached
+        /// stability, or "&lt;baseFileName&gt;_TIMEOUTn.Ns-streakK.png" if it
+        /// gave up at maxWaitSeconds instead - visible directly in a folder
+        /// listing/thumbnail view without needing to open the log.
         /// </summary>
-        internal static bool CaptureWhenStable(IntPtr mainHandle, RECT? viewportRect, string outputPath, int maxWaitSeconds)
+        internal static CaptureOutcome CaptureWhenStable(IntPtr mainHandle, RECT? viewportRect, string outputDir, string baseFileName, int maxWaitSeconds)
         {
-            using (var bitmap = CaptureStableBitmap(mainHandle, viewportRect, maxWaitSeconds, PerViewpointRequiredStableStreak, PerViewpointCheckIntervalMs))
+            var raw = CaptureStable(mainHandle, viewportRect, maxWaitSeconds, PerViewpointRequiredStableStreak, PerViewpointCheckIntervalMs);
+
+            using (raw.Bitmap)
             {
-                if (bitmap == null) return false;
-                bitmap.Save(outputPath, ImageFormat.Png);
-                return true;
+                if (raw.Bitmap == null)
+                {
+                    return new CaptureOutcome(false, null, raw.ElapsedSeconds, raw.Stabilized, raw.FinalStreak);
+                }
+
+                var tag = raw.Stabilized
+                    ? $"stable{raw.ElapsedSeconds:0.0}s"
+                    : $"TIMEOUT{raw.ElapsedSeconds:0.0}s-streak{raw.FinalStreak}";
+                var savedPath = Path.Combine(outputDir, baseFileName + "_" + tag + ".png");
+                raw.Bitmap.Save(savedPath, ImageFormat.Png);
+                return new CaptureOutcome(true, savedPath, raw.ElapsedSeconds, raw.Stabilized, raw.FinalStreak);
             }
         }
 
@@ -518,6 +575,22 @@ namespace NavisTreeExporter.Plugin
         }
 
         /// <summary>
+        /// Handle/title/rect summary of a window, for diagnostic logging -
+        /// lets a real run's log confirm exactly which window was targeted
+        /// (this is what would have shown mainHandle pointing at an
+        /// unrelated terminal window, back when that was the bug).
+        /// </summary>
+        internal static string DescribeWindow(IntPtr hWnd)
+        {
+            if (hWnd == IntPtr.Zero) return "<none>";
+
+            var title = GetWindowTitle(hWnd);
+            return GetWindowRect(hWnd, out var rect)
+                ? $"handle={hWnd}, title='{title}', rect=({rect.Left},{rect.Top})-({rect.Right},{rect.Bottom})"
+                : $"handle={hWnd}, title='{title}', rect=<unavailable>";
+        }
+
+        /// <summary>
         /// Unattended export: waits for the view to visually settle per
         /// viewpoint (see CaptureWhenStable) instead of the Capture prompt,
         /// no MessageBox anywhere (nobody's watching), and the process
@@ -526,10 +599,23 @@ namespace NavisTreeExporter.Plugin
         /// log + a _COMPLETE.txt marker into the output subfolder so a
         /// separate upload script can tell a run finished successfully
         /// before touching the files.
+        ///
+        /// <paramref name="log"/> is pre-populated by the caller
+        /// (ExportViewpointImagesAutoWatcher) with timestamped entries for
+        /// the stages before this method was even called (document
+        /// detected, window found, each wait started/finished) - this
+        /// method appends its own entries to the same list so the final
+        /// _export_log.txt reads as one continuous timeline of the whole
+        /// run, not just the per-viewpoint part. <paramref name="mainHandle"/>
+        /// is the window already found/foregrounded by the caller, reused
+        /// here instead of looking it up again. <paramref name="fileNamePrefix"/>
+        /// (the caller's wait-stage timings, e.g. "L60_D42_S60_") is
+        /// prepended to every saved image's filename so that timing
+        /// summary is visible directly in a folder listing without opening
+        /// the log.
         /// </summary>
-        internal static void RunAutoExport(Document document, AutoExportSettings settings)
+        internal static void RunAutoExport(Document document, AutoExportSettings settings, IntPtr mainHandle, List<string> log, string fileNamePrefix)
         {
-            var log = new List<string>();
             var savedCount = 0;
             var totalCount = 0;
             string subfolder = null;
@@ -543,17 +629,13 @@ namespace NavisTreeExporter.Plugin
                 subfolder = Path.Combine(settings.OutputDir, BuildRunFolderName(document));
                 Directory.CreateDirectory(subfolder);
 
-                var mainHandle = FindNavisworksMainWindow();
                 if (mainHandle == IntPtr.Zero)
                 {
                     log.Add("Could not find the Navisworks main window handle - aborting.");
                 }
                 else
                 {
-                    log.Add($"Main window handle: {mainHandle}, title: '{GetWindowTitle(mainHandle)}'" +
-                        (GetWindowRect(mainHandle, out var mainRect)
-                            ? $", rect: ({mainRect.Left},{mainRect.Top})-({mainRect.Right},{mainRect.Bottom})"
-                            : ", rect: <unavailable>"));
+                    log.Add($"Using main window: {DescribeWindow(mainHandle)}");
 
                     BringToForeground(mainHandle);
                     var viewportRect = ComputeViewportRect(mainHandle);
@@ -584,19 +666,33 @@ namespace NavisTreeExporter.Plugin
                             suffix++;
                         }
 
-                        // Waits for two consecutive captures to look the same
-                        // (capped at settings.WaitSeconds) instead of a fixed
-                        // sleep, so it adapts to how long this particular
-                        // viewpoint actually takes to finish rendering.
-                        var imagePath = Path.Combine(subfolder, uniqueFileName + ".png");
-                        if (CaptureWhenStable(mainHandle, viewportRect, imagePath, settings.WaitSeconds))
+                        // Waits for several consecutive captures to look the
+                        // same (capped at settings.WaitSeconds) instead of a
+                        // fixed sleep, so it adapts to how long this
+                        // particular viewpoint actually takes to render.
+                        var outcome = CaptureWhenStable(mainHandle, viewportRect, subfolder, fileNamePrefix + uniqueFileName, settings.WaitSeconds);
+                        if (outcome.Success)
                         {
                             savedCount++;
-                            log.Add($"[ok] {path} -> {uniqueFileName}.png");
+                            log.Add($"[ok] {path} -> {Path.GetFileName(outcome.SavedPath)} " +
+                                $"(stabilized={outcome.Stabilized}, elapsed={outcome.ElapsedSeconds:0.0}s, streak={outcome.FinalStreak})");
                         }
                         else
                         {
-                            log.Add($"[fail] {path}: capture failed");
+                            log.Add($"[fail] {path}: capture failed after {outcome.ElapsedSeconds:0.0}s (streak={outcome.FinalStreak})");
+                        }
+
+                        // Flush after every viewpoint, not just at the end -
+                        // if the run gets killed externally (e.g. the
+                        // launching script's timeout) mid-way, there's still
+                        // a log to look at instead of nothing.
+                        try
+                        {
+                            File.WriteAllLines(Path.Combine(subfolder, "_export_log.txt"), log);
+                        }
+                        catch (Exception)
+                        {
+                            // Best-effort - don't let a logging hiccup abort the run.
                         }
                     }
                 }
