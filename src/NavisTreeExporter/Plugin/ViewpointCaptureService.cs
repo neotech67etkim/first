@@ -42,8 +42,17 @@ namespace NavisTreeExporter.Plugin
         [DllImport("user32.dll")]
         private static extern bool IsIconic(IntPtr hWnd);
 
+        [DllImport("user32.dll")]
+        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
+
+        private static readonly IntPtr HwndTopmost = new IntPtr(-1);
+        private static readonly IntPtr HwndNoTopmost = new IntPtr(-2);
+
         private const uint GwChild = 5;
         private const int SwRestore = 9;
+        private const uint SwpNoMove = 0x0002;
+        private const uint SwpNoSize = 0x0001;
+        private const uint SwpShowWindow = 0x0040;
 
         // Docked panels whose window bounds are used to narrow the capture
         // crop away from - they overlay the 3D viewport's own screen region,
@@ -63,14 +72,30 @@ namespace NavisTreeExporter.Plugin
         }
 
         /// <summary>
-        /// Restores the window if minimized and brings it to the
-        /// foreground. Auto mode captures whatever is physically on screen
+        /// Restores the window if minimized and forces it to the top of the
+        /// z-order so it's the one actually visible on screen. Auto mode
+        /// captures whatever is physically on screen
         /// (Graphics.CopyFromScreen captures screen pixels, not a specific
         /// window's content), so if Navisworks isn't the frontmost window -
         /// still starting up behind other windows, a notification popup
         /// stealing focus, etc. - the capture ends up showing whatever is
         /// actually on top instead, which is what was happening when a
-        /// screenshot came back showing a different monitor entirely.
+        /// screenshot came back showing an unrelated app on a different
+        /// monitor, with Navisworks never visibly appearing at all.
+        ///
+        /// SetForegroundWindow alone isn't reliable for this: Windows
+        /// restricts it so a background process generally can't steal
+        /// input focus (a call from a Timer tick, as here, is exactly the
+        /// kind of call that gets silently refused - the window just
+        /// flashes in the taskbar instead of actually coming forward).
+        /// Z-order is a separate, unrestricted thing from input focus
+        /// though, so SetWindowPos with HWND_TOPMOST (then immediately
+        /// HWND_NOTOPMOST, so it doesn't permanently stay pinned above
+        /// everything) reliably makes it the visible/topmost window for the
+        /// screenshot even when SetForegroundWindow is refused.
+        /// SetForegroundWindow is still attempted too since it doesn't
+        /// hurt and helps when it *is* allowed.
+        ///
         /// Multi-monitor itself isn't a separate concern: GetWindowRect and
         /// CopyFromScreen both operate in the same virtual-screen
         /// coordinate space (negative coordinates for monitors to the
@@ -88,6 +113,8 @@ namespace NavisTreeExporter.Plugin
                     ShowWindow(hWnd, SwRestore);
                 }
 
+                SetWindowPos(hWnd, HwndTopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpShowWindow);
+                SetWindowPos(hWnd, HwndNoTopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpShowWindow);
                 SetForegroundWindow(hWnd);
             }
             catch (Exception)
@@ -287,6 +314,11 @@ namespace NavisTreeExporter.Plugin
                 }
                 else
                 {
+                    log.Add($"Main window handle: {mainHandle}, title: '{GetWindowTitle(mainHandle)}'" +
+                        (GetWindowRect(mainHandle, out var mainRect)
+                            ? $", rect: ({mainRect.Left},{mainRect.Top})-({mainRect.Right},{mainRect.Bottom})"
+                            : ", rect: <unavailable>"));
+
                     BringToForeground(mainHandle);
                     var viewportRect = ComputeViewportRect(mainHandle);
                     var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
