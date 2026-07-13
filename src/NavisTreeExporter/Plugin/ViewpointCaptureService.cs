@@ -166,6 +166,63 @@ namespace NavisTreeExporter.Plugin
             return found;
         }
 
+        // Navisworks' main frame title always includes this (seen directly
+        // in a real run: "Autodesk Navisworks Simulate 2022  제목 없음" -
+        // the product name stays in English even on a Korean-localized UI).
+        private const string NavisworksTitleSubstring = "Navisworks";
+
+        /// <summary>
+        /// Finds the real Navisworks main frame window, verified by title
+        /// rather than trusted blindly. A real run captured an unrelated
+        /// terminal/console window's content even after the foreground and
+        /// stability fixes - both of those only fix up whatever window the
+        /// handle points to, so if
+        /// Process.GetCurrentProcess().MainWindowHandle's heuristic ever
+        /// picks the wrong top-level window of this process (it isn't
+        /// documented to be 100% reliable, and Navisworks is a complex
+        /// multi-window host), every subsequent step quietly operates on
+        /// the wrong window. This checks that handle's title first, and
+        /// falls back to scanning all of this process's own top-level
+        /// windows for the largest one whose title actually mentions
+        /// Navisworks if it doesn't match. Returns IntPtr.Zero if nothing
+        /// matches, which the rest of the pipeline already treats as
+        /// "capture failed" rather than capturing the wrong thing.
+        /// </summary>
+        internal static IntPtr FindNavisworksMainWindow()
+        {
+            var candidate = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
+            if (candidate != IntPtr.Zero &&
+                GetWindowTitle(candidate).IndexOf(NavisworksTitleSubstring, StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return candidate;
+            }
+
+            var currentPid = (uint)System.Diagnostics.Process.GetCurrentProcess().Id;
+            var best = IntPtr.Zero;
+            long bestArea = 0;
+
+            EnumWindowsProc visit = (hWnd, lParam) =>
+            {
+                GetWindowThreadProcessId(hWnd, out var pid);
+                if (pid == currentPid && IsWindowVisible(hWnd) &&
+                    GetWindowTitle(hWnd).IndexOf(NavisworksTitleSubstring, StringComparison.OrdinalIgnoreCase) >= 0 &&
+                    GetWindowRect(hWnd, out var rect))
+                {
+                    long area = (long)(rect.Right - rect.Left) * (rect.Bottom - rect.Top);
+                    if (area > bestArea)
+                    {
+                        bestArea = area;
+                        best = hWnd;
+                    }
+                }
+
+                return true;
+            };
+
+            EnumWindows(visit, IntPtr.Zero);
+            return best;
+        }
+
         /// <summary>
         /// Captures the whole main window, then crops the result down to
         /// <paramref name="viewportRect"/> (falls back to the full window if
@@ -484,7 +541,7 @@ namespace NavisTreeExporter.Plugin
                 subfolder = Path.Combine(settings.OutputDir, BuildRunFolderName(document));
                 Directory.CreateDirectory(subfolder);
 
-                var mainHandle = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
+                var mainHandle = FindNavisworksMainWindow();
                 if (mainHandle == IntPtr.Zero)
                 {
                     log.Add("Could not find the Navisworks main window handle - aborting.");

@@ -86,7 +86,7 @@ namespace NavisTreeExporter.Plugin
                 // can't break the window layout. Start from the largest
                 // visible leaf window, then narrow it away from any docked
                 // panel that overlaps it horizontally.
-                var mainHandle = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
+                var mainHandle = ViewpointCaptureService.FindNavisworksMainWindow();
                 var viewportRect = ViewpointCaptureService.ComputeViewportRect(mainHandle);
 
                 try

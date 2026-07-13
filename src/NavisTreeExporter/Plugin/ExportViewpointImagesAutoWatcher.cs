@@ -104,7 +104,7 @@ namespace NavisTreeExporter.Plugin
             // render. Otherwise geometry can keep loading behind other
             // windows and the eventual screenshot shows whatever else was
             // on top instead of the model.
-            var mainHandle = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
+            var mainHandle = ViewpointCaptureService.FindNavisworksMainWindow();
             ViewpointCaptureService.BringToForeground(mainHandle);
 
             // Models.Count > 0 fires well before Navisworks' own file-loading
