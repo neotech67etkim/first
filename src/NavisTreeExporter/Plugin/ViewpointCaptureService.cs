@@ -284,18 +284,13 @@ namespace NavisTreeExporter.Plugin
             }
         }
 
-        // A single pair of matching captures isn't a reliable "done loading"
-        // signal on its own - a real run still captured mid-load because
-        // large models stream geometry in bursts with brief pauses between
-        // chunks, and a pause that happens to land on a 500ms check interval
-        // looks identical to true stability. Requiring several consecutive
-        // matches (i.e. the view has to hold still for a continuous stretch,
-        // not just one instant) filters those pauses out. The post-load
-        // settle needs a longer stretch than the per-viewpoint wait since
-        // it's the one that's network/disk-bound (streaming a whole file)
-        // rather than just GPU-bound (rendering one already-loaded view).
-        private const int PostLoadRequiredStableStreak = 6; // ~6s of no change at 1000ms/check
-        private const int PostLoadCheckIntervalMs = 1000;
+        // A single pair of matching captures isn't a reliable "settled"
+        // signal on its own for a freshly-loaded document (see
+        // ExportViewpointImagesAutoWatcher - that phase uses a flat wait
+        // instead, since even multi-second streaming pauses mid-load could
+        // fool a streak check), but per-viewpoint rendering settle is
+        // GPU-bound and much quicker, so requiring a few consecutive
+        // matches here still works well.
         private const int PerViewpointRequiredStableStreak = 4; // ~2s of no change at 500ms/check
         private const int PerViewpointCheckIntervalMs = 500;
 
@@ -348,21 +343,6 @@ namespace NavisTreeExporter.Plugin
 
                 System.Windows.Forms.Application.DoEvents();
                 System.Threading.Thread.Sleep(checkIntervalMs);
-            }
-        }
-
-        /// <summary>
-        /// Waits for the viewport to stop changing (see CaptureStableBitmap)
-        /// without saving anything - used to let rendering settle after a
-        /// document finishes loading, before the per-viewpoint loop starts.
-        /// Uses the stricter post-load streak requirement since this is the
-        /// wait most exposed to streaming pauses on large files.
-        /// </summary>
-        internal static void WaitUntilStable(IntPtr mainHandle, RECT? viewportRect, int maxWaitSeconds)
-        {
-            using (CaptureStableBitmap(mainHandle, viewportRect, maxWaitSeconds, PostLoadRequiredStableStreak, PostLoadCheckIntervalMs))
-            {
-                // Only waiting for stability here - nothing to save.
             }
         }
 

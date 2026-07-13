@@ -16,13 +16,16 @@
     The plugin waits -MinInitialWaitSeconds unconditionally right after the
     document opens (there's a real gap before Navisworks' own loading
     dialog even appears, and checking too early wrongly concludes loading
-    is already done), then up to -InitialWaitSeconds more for the view to
-    settle, then runs the whole export waiting up to -WaitSeconds per
-    viewpoint for it to settle too (no interactive Capture prompt), writes
-    a log plus a _COMPLETE.txt marker into a per-run subfolder under
-    -OutputDir, and exits the process itself when done - this script just
-    waits for that exit (or kills it after -TimeoutMinutes if something
-    hangs).
+    is already done), then waits for that loading dialog to close, then
+    waits -InitialWaitSeconds more (also unconditional/flat - a stability
+    check was tried here too, but large models pause for several seconds
+    between geometry-streaming bursts mid-load, which fooled it into
+    declaring "settled" too early), then runs the whole export waiting up
+    to -WaitSeconds per viewpoint for the view to settle (no interactive
+    Capture prompt), writes a log plus a _COMPLETE.txt marker into a
+    per-run subfolder under -OutputDir, and exits the process itself when
+    done - this script just waits for that exit (or kills it after
+    -TimeoutMinutes if something hangs).
 
     Image generation only: uploading the produced PNGs to a server is not
     handled here. A separate script/process can watch -OutputDir for new
@@ -47,12 +50,10 @@
     (default 15). Increase for heavier models.
 
 .PARAMETER InitialWaitSeconds
-    Upper bound (seconds) on how long to wait for the view to settle after
-    the document finishes opening, before the capture loop starts (default
-    60). This is a cap, not a flat wait - the plugin detects settling by
-    watching for the view to hold still, so it usually finishes well under
-    this. Increase for very large models that keep streaming geometry in
-    for a long time.
+    Unconditional wait (seconds), always taken in full, after the loading
+    dialog closes and before the per-viewpoint capture loop starts
+    (default 60). Increase for very large models that keep streaming
+    geometry in for a long time after the dialog closes.
 
 .PARAMETER MinInitialWaitSeconds
     Unconditional minimum wait (seconds) applied right after the document

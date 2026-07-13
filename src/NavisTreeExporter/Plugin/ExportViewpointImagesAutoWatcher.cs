@@ -141,11 +141,22 @@ namespace NavisTreeExporter.Plugin
 
             // Extra grace period after the loading dialog closes - rendering
             // can still catch up for a moment even once loading itself is
-            // done. Waits for two consecutive captures to look the same
-            // (capped at InitialWaitSeconds) instead of just sleeping for a
-            // fixed time, for the same reason as the per-viewpoint capture.
-            var viewportRect = ViewpointCaptureService.ComputeViewportRect(mainHandle);
-            ViewpointCaptureService.WaitUntilStable(mainHandle, viewportRect, _autoSettings.InitialWaitSeconds);
+            // done. This used to be a stability check (wait for two/several
+            // consecutive captures to look the same) instead of a flat
+            // sleep, but on a real run with a large model it kept declaring
+            // "stable" during a multi-second pause between geometry
+            // streaming bursts, well before the model had actually finished
+            // - the view genuinely doesn't change for stretches of several
+            // seconds at a time mid-load, so no streak length reliably
+            // told loading-paused apart from loading-done. Unconditional
+            // flat wait instead, same as the pre-dialog floor above.
+            var settleUntil = DateTime.UtcNow.AddSeconds(_autoSettings.InitialWaitSeconds);
+            while (DateTime.UtcNow < settleUntil)
+            {
+                ViewpointCaptureService.BringToForeground(mainHandle);
+                System.Windows.Forms.Application.DoEvents();
+                System.Threading.Thread.Sleep(500);
+            }
 
             ViewpointCaptureService.RunAutoExport(document, _autoSettings);
         }

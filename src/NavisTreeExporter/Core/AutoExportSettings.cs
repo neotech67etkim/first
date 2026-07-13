@@ -20,15 +20,15 @@ namespace NavisTreeExporter.Core
         public int WaitSeconds { get; }
 
         /// <summary>
-        /// Upper bound (seconds) on how long to wait for the view to settle
-        /// after a document finishes opening (i.e. once
-        /// document.Models.Count > 0 and the loading dialog has closed)
-        /// before the capture loop starts. Settling is detected by the view
-        /// holding still for several consecutive checks in a row (see
-        /// ViewpointCaptureService.WaitUntilStable) rather than a flat
-        /// sleep, so this is a cap, not a wait that's always taken in full
-        /// - but it needs real headroom since large models can keep
-        /// streaming geometry in bursts well after the dialog closes.
+        /// Unconditional wait (seconds), always taken in full, after the
+        /// loading dialog closes and before the per-viewpoint capture loop
+        /// starts. This used to be a stability check (wait until the view
+        /// holds still) instead of a flat sleep, but on a real run with a
+        /// large model that kept declaring "stable" during multi-second
+        /// pauses between geometry-streaming bursts, well before loading
+        /// had actually finished - no streak length reliably told
+        /// loading-paused apart from loading-done, so this is a plain flat
+        /// wait instead, same idea as MinInitialWaitSeconds.
         /// </summary>
         public int InitialWaitSeconds { get; }
 
