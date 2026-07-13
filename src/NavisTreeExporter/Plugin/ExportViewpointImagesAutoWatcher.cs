@@ -107,6 +107,24 @@ namespace NavisTreeExporter.Plugin
             var mainHandle = ViewpointCaptureService.FindNavisworksMainWindow();
             ViewpointCaptureService.BringToForeground(mainHandle);
 
+            // Unconditional floor before checking for the loading dialog at
+            // all: on a real run there's a real gap between Models.Count
+            // becoming nonzero and Navisworks' own "작업 중" loading dialog
+            // actually appearing on screen (plus more delay before the
+            // dialog shows up in the first place after the process
+            // launches). Checking for the dialog during that gap sees
+            // nothing yet and wrongly concludes loading is already done -
+            // this plain sleep (not stability-based, always taken in full)
+            // outlasts that gap so the reactive dialog-wait below only
+            // starts once the dialog has had a real chance to show up.
+            var minWaitUntil = DateTime.UtcNow.AddSeconds(_autoSettings.MinInitialWaitSeconds);
+            while (DateTime.UtcNow < minWaitUntil)
+            {
+                ViewpointCaptureService.BringToForeground(mainHandle);
+                System.Windows.Forms.Application.DoEvents();
+                System.Threading.Thread.Sleep(500);
+            }
+
             // Models.Count > 0 fires well before Navisworks' own file-loading
             // progress dialog ("작업 중... (NN.N%)") actually closes on
             // larger models - wait for that dialog to disappear instead of

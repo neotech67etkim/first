@@ -12,14 +12,17 @@
     (Roamer.exe) with that file, after setting the environment variables
     the auto-mode watcher plugin reads: NAVIS_AUTO_EXPORT_IMAGES,
     NAVIS_AUTO_OUTPUT_DIR, NAVIS_AUTO_WAIT_SECONDS,
-    NAVIS_AUTO_INITIAL_WAIT_SECONDS. The plugin waits -InitialWaitSeconds
-    after the document finishes opening (geometry can still be
-    streaming/rendering in for a while after that point), then runs the
-    whole export with a fixed -WaitSeconds wait per viewpoint (no
-    interactive Capture prompt), writes a log plus a _COMPLETE.txt marker
-    into a per-run subfolder under -OutputDir, and exits the process
-    itself when done - this script just waits for that exit (or kills it
-    after -TimeoutMinutes if something hangs).
+    NAVIS_AUTO_INITIAL_WAIT_SECONDS, NAVIS_AUTO_MIN_INITIAL_WAIT_SECONDS.
+    The plugin waits -MinInitialWaitSeconds unconditionally right after the
+    document opens (there's a real gap before Navisworks' own loading
+    dialog even appears, and checking too early wrongly concludes loading
+    is already done), then up to -InitialWaitSeconds more for the view to
+    settle, then runs the whole export waiting up to -WaitSeconds per
+    viewpoint for it to settle too (no interactive Capture prompt), writes
+    a log plus a _COMPLETE.txt marker into a per-run subfolder under
+    -OutputDir, and exits the process itself when done - this script just
+    waits for that exit (or kills it after -TimeoutMinutes if something
+    hangs).
 
     Image generation only: uploading the produced PNGs to a server is not
     handled here. A separate script/process can watch -OutputDir for new
@@ -50,6 +53,16 @@
     watching for the view to hold still, so it usually finishes well under
     this. Increase for very large models that keep streaming geometry in
     for a long time.
+
+.PARAMETER MinInitialWaitSeconds
+    Unconditional minimum wait (seconds) applied right after the document
+    opens, before any of the above settling detection starts (default 20).
+    Unlike InitialWaitSeconds this is always taken in full - it exists
+    because there's a real gap between the document opening and
+    Navisworks' own loading dialog actually appearing, and checking for
+    that dialog too early wrongly concludes loading is already done.
+    Increase if Navisworks takes a long time just to get the loading
+    dialog on screen after launch.
 
 .PARAMETER TimeoutMinutes
     If Navisworks hasn't exited on its own within this many minutes, the
@@ -82,6 +95,8 @@ param(
     [int]$WaitSeconds = 15,
 
     [int]$InitialWaitSeconds = 60,
+
+    [int]$MinInitialWaitSeconds = 20,
 
     [int]$TimeoutMinutes = 20
 )
@@ -118,6 +133,7 @@ $env:NAVIS_AUTO_EXPORT_IMAGES = "1"
 $env:NAVIS_AUTO_OUTPUT_DIR = $OutputDir
 $env:NAVIS_AUTO_WAIT_SECONDS = "$WaitSeconds"
 $env:NAVIS_AUTO_INITIAL_WAIT_SECONDS = "$InitialWaitSeconds"
+$env:NAVIS_AUTO_MIN_INITIAL_WAIT_SECONDS = "$MinInitialWaitSeconds"
 
 $proc = Start-Process -FilePath $RoamerExe -ArgumentList "`"$($latest.FullName)`"" -PassThru
 

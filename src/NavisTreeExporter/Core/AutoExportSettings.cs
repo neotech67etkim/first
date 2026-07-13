@@ -13,6 +13,7 @@ namespace NavisTreeExporter.Core
     {
         private const int DefaultWaitSeconds = 15;
         private const int DefaultInitialWaitSeconds = 60;
+        private const int DefaultMinInitialWaitSeconds = 20;
 
         public string OutputDir { get; }
 
@@ -31,11 +32,26 @@ namespace NavisTreeExporter.Core
         /// </summary>
         public int InitialWaitSeconds { get; }
 
-        private AutoExportSettings(string outputDir, int waitSeconds, int initialWaitSeconds)
+        /// <summary>
+        /// Unconditional minimum wait (seconds), applied right after
+        /// document.Models.Count > 0 becomes true and before checking for
+        /// the loading dialog at all. On a real run there's a real gap
+        /// between the document object existing and the "작업 중" loading
+        /// dialog actually appearing on screen - checking for the dialog
+        /// during that gap sees nothing yet and wrongly concludes loading
+        /// is already done. This floor is a plain, unconditional sleep (not
+        /// stability-based) sized to outlast that gap so the dialog-wait
+        /// logic that follows only starts once the dialog has had a chance
+        /// to actually show up.
+        /// </summary>
+        public int MinInitialWaitSeconds { get; }
+
+        private AutoExportSettings(string outputDir, int waitSeconds, int initialWaitSeconds, int minInitialWaitSeconds)
         {
             OutputDir = outputDir;
             WaitSeconds = waitSeconds;
             InitialWaitSeconds = initialWaitSeconds;
+            MinInitialWaitSeconds = minInitialWaitSeconds;
         }
 
         /// <summary>
@@ -58,8 +74,9 @@ namespace NavisTreeExporter.Core
 
             var waitSeconds = ReadPositiveInt("NAVIS_AUTO_WAIT_SECONDS", DefaultWaitSeconds);
             var initialWaitSeconds = ReadPositiveInt("NAVIS_AUTO_INITIAL_WAIT_SECONDS", DefaultInitialWaitSeconds);
+            var minInitialWaitSeconds = ReadPositiveInt("NAVIS_AUTO_MIN_INITIAL_WAIT_SECONDS", DefaultMinInitialWaitSeconds);
 
-            return new AutoExportSettings(outputDir, waitSeconds, initialWaitSeconds);
+            return new AutoExportSettings(outputDir, waitSeconds, initialWaitSeconds, minInitialWaitSeconds);
         }
 
         private static int ReadPositiveInt(string envVarName, int defaultValue)
