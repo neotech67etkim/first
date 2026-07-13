@@ -169,15 +169,17 @@ namespace NavisTreeExporter.Plugin
         /// <summary>
         /// Captures the whole main window, then crops the result down to
         /// <paramref name="viewportRect"/> (falls back to the full window if
-        /// that's null/couldn't be determined).
+        /// that's null/couldn't be determined). Caller owns the returned
+        /// bitmap and must dispose it. Returns null if the window rect
+        /// can't be read or is degenerate (e.g. minimized).
         /// </summary>
-        internal static bool CaptureAndCropToViewport(IntPtr mainHandle, RECT? viewportRect, string outputPath)
+        private static System.Drawing.Bitmap CaptureCroppedBitmap(IntPtr mainHandle, RECT? viewportRect)
         {
-            if (!GetWindowRect(mainHandle, out var windowRect)) return false;
+            if (!GetWindowRect(mainHandle, out var windowRect)) return null;
 
             var fullWidth = windowRect.Right - windowRect.Left;
             var fullHeight = windowRect.Bottom - windowRect.Top;
-            if (fullWidth <= 0 || fullHeight <= 0) return false;
+            if (fullWidth <= 0 || fullHeight <= 0) return null;
 
             using (var fullBitmap = new System.Drawing.Bitmap(fullWidth, fullHeight, PixelFormat.Format32bppArgb))
             {
@@ -186,29 +188,161 @@ namespace NavisTreeExporter.Plugin
                     graphics.CopyFromScreen(windowRect.Left, windowRect.Top, 0, 0, new System.Drawing.Size(fullWidth, fullHeight));
                 }
 
+                var cropRect = new System.Drawing.Rectangle(0, 0, fullWidth, fullHeight);
                 if (viewportRect != null)
                 {
                     var v = viewportRect.Value;
-                    var cropRect = new System.Drawing.Rectangle(
+                    var candidate = new System.Drawing.Rectangle(
                         v.Left - windowRect.Left,
                         v.Top - windowRect.Top,
                         v.Right - v.Left,
                         v.Bottom - v.Top);
-                    cropRect.Intersect(new System.Drawing.Rectangle(0, 0, fullWidth, fullHeight));
+                    candidate.Intersect(cropRect);
 
-                    if (cropRect.Width > 0 && cropRect.Height > 0)
+                    if (candidate.Width > 0 && candidate.Height > 0)
                     {
-                        using (var cropped = fullBitmap.Clone(cropRect, fullBitmap.PixelFormat))
-                        {
-                            cropped.Save(outputPath, ImageFormat.Png);
-                        }
-                        return true;
+                        cropRect = candidate;
                     }
                 }
 
-                fullBitmap.Save(outputPath, ImageFormat.Png);
+                return fullBitmap.Clone(cropRect, fullBitmap.PixelFormat);
+            }
+        }
+
+        /// <summary>
+        /// Captures the whole main window, then crops the result down to
+        /// <paramref name="viewportRect"/> (falls back to the full window if
+        /// that's null/couldn't be determined). Used by the interactive
+        /// Capture button, where a human already confirmed the view is
+        /// settled - see CaptureWhenStable for the auto-mode equivalent
+        /// that doesn't have a human to ask.
+        /// </summary>
+        internal static bool CaptureAndCropToViewport(IntPtr mainHandle, RECT? viewportRect, string outputPath)
+        {
+            using (var bitmap = CaptureCroppedBitmap(mainHandle, viewportRect))
+            {
+                if (bitmap == null) return false;
+                bitmap.Save(outputPath, ImageFormat.Png);
                 return true;
             }
+        }
+
+        /// <summary>
+        /// Repeatedly captures the viewport (re-asserting foreground each
+        /// time, in case something stole focus mid-wait) until two
+        /// consecutive captures look the same, or <paramref name="maxWaitSeconds"/>
+        /// elapses - whichever comes first - and returns the last capture.
+        /// Adapts to how long a given viewpoint actually takes to finish
+        /// rendering instead of guessing a fixed wait. Comparison is done on
+        /// a small downscaled thumbnail rather than pixel-for-pixel, both
+        /// for speed and to tolerate tiny rendering/anti-aliasing jitter
+        /// between two frames of an otherwise-static view. Caller owns the
+        /// returned bitmap (may be null if capture never succeeded even once).
+        /// </summary>
+        private static System.Drawing.Bitmap CaptureStableBitmap(IntPtr mainHandle, RECT? viewportRect, int maxWaitSeconds, int checkIntervalMs = 500)
+        {
+            var deadline = DateTime.UtcNow.AddSeconds(maxWaitSeconds);
+            byte[] previousThumbprint = null;
+            System.Drawing.Bitmap previousBitmap = null;
+
+            while (true)
+            {
+                BringToForeground(mainHandle);
+                var current = CaptureCroppedBitmap(mainHandle, viewportRect);
+
+                if (current == null)
+                {
+                    return previousBitmap; // best-effort: whatever we last managed to capture, if anything
+                }
+
+                var currentThumbprint = ComputeThumbprint(current);
+                var isStable = previousThumbprint != null && ThumbprintsMatch(previousThumbprint, currentThumbprint);
+                var timedOut = DateTime.UtcNow >= deadline;
+
+                if (isStable || timedOut)
+                {
+                    previousBitmap?.Dispose();
+                    return current;
+                }
+
+                previousBitmap?.Dispose();
+                previousBitmap = current;
+                previousThumbprint = currentThumbprint;
+
+                System.Windows.Forms.Application.DoEvents();
+                System.Threading.Thread.Sleep(checkIntervalMs);
+            }
+        }
+
+        /// <summary>
+        /// Waits for the viewport to stop changing (see CaptureStableBitmap)
+        /// without saving anything - used to let rendering settle after a
+        /// document finishes loading, before the per-viewpoint loop starts.
+        /// </summary>
+        internal static void WaitUntilStable(IntPtr mainHandle, RECT? viewportRect, int maxWaitSeconds)
+        {
+            using (CaptureStableBitmap(mainHandle, viewportRect, maxWaitSeconds))
+            {
+                // Only waiting for stability here - nothing to save.
+            }
+        }
+
+        /// <summary>
+        /// Waits for the viewport to stop changing (see CaptureStableBitmap)
+        /// and saves that capture - the auto-mode replacement for a fixed
+        /// per-viewpoint wait.
+        /// </summary>
+        internal static bool CaptureWhenStable(IntPtr mainHandle, RECT? viewportRect, string outputPath, int maxWaitSeconds)
+        {
+            using (var bitmap = CaptureStableBitmap(mainHandle, viewportRect, maxWaitSeconds))
+            {
+                if (bitmap == null) return false;
+                bitmap.Save(outputPath, ImageFormat.Png);
+                return true;
+            }
+        }
+
+        // Below this average per-byte difference (0-255 scale) between two
+        // downscaled-thumbnail captures, they're considered "the same frame"
+        // - small enough to catch real changes (new geometry appearing,
+        // camera still moving) but tolerant of GPU/anti-aliasing noise
+        // between two frames of an otherwise-static view.
+        private const double StableAverageDiffThreshold = 1.5;
+        private const int ThumbprintSize = 32;
+
+        private static byte[] ComputeThumbprint(System.Drawing.Bitmap source)
+        {
+            using (var thumb = new System.Drawing.Bitmap(source, new System.Drawing.Size(ThumbprintSize, ThumbprintSize)))
+            {
+                var bytes = new byte[ThumbprintSize * ThumbprintSize * 4];
+                var i = 0;
+                for (var y = 0; y < ThumbprintSize; y++)
+                {
+                    for (var x = 0; x < ThumbprintSize; x++)
+                    {
+                        var pixel = thumb.GetPixel(x, y);
+                        bytes[i++] = pixel.R;
+                        bytes[i++] = pixel.G;
+                        bytes[i++] = pixel.B;
+                        bytes[i++] = pixel.A;
+                    }
+                }
+
+                return bytes;
+            }
+        }
+
+        private static bool ThumbprintsMatch(byte[] a, byte[] b)
+        {
+            if (a.Length != b.Length) return false;
+
+            long totalDiff = 0;
+            for (var i = 0; i < a.Length; i++)
+            {
+                totalDiff += Math.Abs(a[i] - b[i]);
+            }
+
+            return (double)totalDiff / a.Length < StableAverageDiffThreshold;
         }
 
         /// <summary>
@@ -325,12 +459,13 @@ namespace NavisTreeExporter.Plugin
         }
 
         /// <summary>
-        /// Unattended export: fixed wait per viewpoint instead of the
-        /// Capture prompt, no MessageBox anywhere (nobody's watching), and
-        /// the process exits itself when finished so a scheduled task that
-        /// launched Navisworks headlessly-but-visibly completes cleanly.
-        /// Writes a log + a _COMPLETE.txt marker into the output subfolder
-        /// so a separate upload script can tell a run finished successfully
+        /// Unattended export: waits for the view to visually settle per
+        /// viewpoint (see CaptureWhenStable) instead of the Capture prompt,
+        /// no MessageBox anywhere (nobody's watching), and the process
+        /// exits itself when finished so a scheduled task that launched
+        /// Navisworks headlessly-but-visibly completes cleanly. Writes a
+        /// log + a _COMPLETE.txt marker into the output subfolder so a
+        /// separate upload script can tell a run finished successfully
         /// before touching the files.
         /// </summary>
         internal static void RunAutoExport(Document document, AutoExportSettings settings)
@@ -380,14 +515,6 @@ namespace NavisTreeExporter.Plugin
                         }
 
                         System.Windows.Forms.Application.DoEvents();
-                        System.Threading.Thread.Sleep(settings.WaitSeconds * 1000);
-                        System.Windows.Forms.Application.DoEvents();
-
-                        // Re-assert foreground right before capturing - the wait above
-                        // is long enough for something else (a notification popup, etc.)
-                        // to have stolen focus in the meantime.
-                        BringToForeground(mainHandle);
-                        System.Windows.Forms.Application.DoEvents();
 
                         var fileName = FileNameSanitizer.Sanitize(path, "Viewpoint" + i);
                         var uniqueFileName = fileName;
@@ -398,8 +525,12 @@ namespace NavisTreeExporter.Plugin
                             suffix++;
                         }
 
+                        // Waits for two consecutive captures to look the same
+                        // (capped at settings.WaitSeconds) instead of a fixed
+                        // sleep, so it adapts to how long this particular
+                        // viewpoint actually takes to finish rendering.
                         var imagePath = Path.Combine(subfolder, uniqueFileName + ".png");
-                        if (CaptureAndCropToViewport(mainHandle, viewportRect, imagePath))
+                        if (CaptureWhenStable(mainHandle, viewportRect, imagePath, settings.WaitSeconds))
                         {
                             savedCount++;
                             log.Add($"[ok] {path} -> {uniqueFileName}.png");

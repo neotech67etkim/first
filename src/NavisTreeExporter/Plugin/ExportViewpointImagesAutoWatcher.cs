@@ -122,13 +122,12 @@ namespace NavisTreeExporter.Plugin
             }
 
             // Extra grace period after the loading dialog closes - rendering
-            // can still catch up for a moment even once loading itself is done.
-            var waitUntil = DateTime.UtcNow.AddSeconds(_autoSettings.InitialWaitSeconds);
-            while (DateTime.UtcNow < waitUntil)
-            {
-                System.Windows.Forms.Application.DoEvents();
-                System.Threading.Thread.Sleep(50);
-            }
+            // can still catch up for a moment even once loading itself is
+            // done. Waits for two consecutive captures to look the same
+            // (capped at InitialWaitSeconds) instead of just sleeping for a
+            // fixed time, for the same reason as the per-viewpoint capture.
+            var viewportRect = ViewpointCaptureService.ComputeViewportRect(mainHandle);
+            ViewpointCaptureService.WaitUntilStable(mainHandle, viewportRect, _autoSettings.InitialWaitSeconds);
 
             ViewpointCaptureService.RunAutoExport(document, _autoSettings);
         }
