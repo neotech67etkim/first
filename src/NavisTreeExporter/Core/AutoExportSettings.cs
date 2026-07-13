@@ -11,16 +11,26 @@ namespace NavisTreeExporter.Core
     /// </summary>
     public sealed class AutoExportSettings
     {
-        private const int DefaultWaitSeconds = 8;
+        private const int DefaultWaitSeconds = 15;
+        private const int DefaultInitialWaitSeconds = 15;
 
         public string OutputDir { get; }
 
         public int WaitSeconds { get; }
 
-        private AutoExportSettings(string outputDir, int waitSeconds)
+        /// <summary>
+        /// Extra grace period after a document finishes opening (i.e. once
+        /// document.Models.Count > 0) before the capture loop starts -
+        /// geometry can still be streaming/rendering in for a while after
+        /// that point on heavier models.
+        /// </summary>
+        public int InitialWaitSeconds { get; }
+
+        private AutoExportSettings(string outputDir, int waitSeconds, int initialWaitSeconds)
         {
             OutputDir = outputDir;
             WaitSeconds = waitSeconds;
+            InitialWaitSeconds = initialWaitSeconds;
         }
 
         /// <summary>
@@ -41,14 +51,21 @@ namespace NavisTreeExporter.Core
                 return null;
             }
 
-            var waitSeconds = DefaultWaitSeconds;
-            var waitEnv = Environment.GetEnvironmentVariable("NAVIS_AUTO_WAIT_SECONDS");
-            if (!string.IsNullOrWhiteSpace(waitEnv) && int.TryParse(waitEnv, out var parsed) && parsed > 0)
+            var waitSeconds = ReadPositiveInt("NAVIS_AUTO_WAIT_SECONDS", DefaultWaitSeconds);
+            var initialWaitSeconds = ReadPositiveInt("NAVIS_AUTO_INITIAL_WAIT_SECONDS", DefaultInitialWaitSeconds);
+
+            return new AutoExportSettings(outputDir, waitSeconds, initialWaitSeconds);
+        }
+
+        private static int ReadPositiveInt(string envVarName, int defaultValue)
+        {
+            var raw = Environment.GetEnvironmentVariable(envVarName);
+            if (!string.IsNullOrWhiteSpace(raw) && int.TryParse(raw, out var parsed) && parsed > 0)
             {
-                waitSeconds = parsed;
+                return parsed;
             }
 
-            return new AutoExportSettings(outputDir, waitSeconds);
+            return defaultValue;
         }
     }
 }

@@ -94,6 +94,17 @@ namespace NavisTreeExporter.Plugin
             if (!hasModel) return;
 
             _autoTimer.Stop();
+
+            // Geometry can still be streaming/rendering in for a while after
+            // Models.Count first becomes nonzero, especially on heavier
+            // models - give it a fixed grace period before the first capture.
+            var waitUntil = DateTime.UtcNow.AddSeconds(_autoSettings.InitialWaitSeconds);
+            while (DateTime.UtcNow < waitUntil)
+            {
+                System.Windows.Forms.Application.DoEvents();
+                System.Threading.Thread.Sleep(50);
+            }
+
             ViewpointCaptureService.RunAutoExport(document, _autoSettings);
         }
     }

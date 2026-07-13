@@ -11,12 +11,15 @@
     standalone file; either can be opened directly), then starts Navisworks
     (Roamer.exe) with that file, after setting the environment variables
     the auto-mode watcher plugin reads: NAVIS_AUTO_EXPORT_IMAGES,
-    NAVIS_AUTO_OUTPUT_DIR, NAVIS_AUTO_WAIT_SECONDS. The plugin then runs
-    the whole export with a fixed wait per viewpoint (no interactive
-    Capture prompt), writes a log plus a _COMPLETE.txt marker into a
-    per-run subfolder under -OutputDir, and exits the process itself when
-    done - this script just waits for that exit (or kills it after
-    -TimeoutMinutes if something hangs).
+    NAVIS_AUTO_OUTPUT_DIR, NAVIS_AUTO_WAIT_SECONDS,
+    NAVIS_AUTO_INITIAL_WAIT_SECONDS. The plugin waits -InitialWaitSeconds
+    after the document finishes opening (geometry can still be
+    streaming/rendering in for a while after that point), then runs the
+    whole export with a fixed -WaitSeconds wait per viewpoint (no
+    interactive Capture prompt), writes a log plus a _COMPLETE.txt marker
+    into a per-run subfolder under -OutputDir, and exits the process
+    itself when done - this script just waits for that exit (or kills it
+    after -TimeoutMinutes if something hangs).
 
     Image generation only: uploading the produced PNGs to a server is not
     handled here. A separate script/process can watch -OutputDir for new
@@ -38,7 +41,12 @@
 
 .PARAMETER WaitSeconds
     Seconds to wait after moving the camera to a viewpoint before capturing
-    (default 8). Increase for heavier models.
+    (default 15). Increase for heavier models.
+
+.PARAMETER InitialWaitSeconds
+    Seconds to wait after the document finishes opening before the capture
+    loop starts at all (default 15). Increase if the model is slow to
+    finish rendering right after it loads.
 
 .PARAMETER TimeoutMinutes
     If Navisworks hasn't exited on its own within this many minutes, the
@@ -68,7 +76,9 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$OutputDir,
 
-    [int]$WaitSeconds = 8,
+    [int]$WaitSeconds = 15,
+
+    [int]$InitialWaitSeconds = 15,
 
     [int]$TimeoutMinutes = 20
 )
@@ -104,6 +114,7 @@ New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 $env:NAVIS_AUTO_EXPORT_IMAGES = "1"
 $env:NAVIS_AUTO_OUTPUT_DIR = $OutputDir
 $env:NAVIS_AUTO_WAIT_SECONDS = "$WaitSeconds"
+$env:NAVIS_AUTO_INITIAL_WAIT_SECONDS = "$InitialWaitSeconds"
 
 $proc = Start-Process -FilePath $RoamerExe -ArgumentList "`"$($latest.FullName)`"" -PassThru
 
