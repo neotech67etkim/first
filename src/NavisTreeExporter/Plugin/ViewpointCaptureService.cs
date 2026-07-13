@@ -284,23 +284,40 @@ namespace NavisTreeExporter.Plugin
             }
         }
 
+        // A single pair of matching captures isn't a reliable "done loading"
+        // signal on its own - a real run still captured mid-load because
+        // large models stream geometry in bursts with brief pauses between
+        // chunks, and a pause that happens to land on a 500ms check interval
+        // looks identical to true stability. Requiring several consecutive
+        // matches (i.e. the view has to hold still for a continuous stretch,
+        // not just one instant) filters those pauses out. The post-load
+        // settle needs a longer stretch than the per-viewpoint wait since
+        // it's the one that's network/disk-bound (streaming a whole file)
+        // rather than just GPU-bound (rendering one already-loaded view).
+        private const int PostLoadRequiredStableStreak = 6; // ~6s of no change at 1000ms/check
+        private const int PostLoadCheckIntervalMs = 1000;
+        private const int PerViewpointRequiredStableStreak = 4; // ~2s of no change at 500ms/check
+        private const int PerViewpointCheckIntervalMs = 500;
+
         /// <summary>
         /// Repeatedly captures the viewport (re-asserting foreground each
-        /// time, in case something stole focus mid-wait) until two
-        /// consecutive captures look the same, or <paramref name="maxWaitSeconds"/>
+        /// time, in case something stole focus mid-wait) until
+        /// <paramref name="requiredStableStreak"/> consecutive captures in a
+        /// row all look the same, or <paramref name="maxWaitSeconds"/>
         /// elapses - whichever comes first - and returns the last capture.
-        /// Adapts to how long a given viewpoint actually takes to finish
-        /// rendering instead of guessing a fixed wait. Comparison is done on
-        /// a small downscaled thumbnail rather than pixel-for-pixel, both
-        /// for speed and to tolerate tiny rendering/anti-aliasing jitter
-        /// between two frames of an otherwise-static view. Caller owns the
-        /// returned bitmap (may be null if capture never succeeded even once).
+        /// Adapts to how long loading/rendering actually takes instead of
+        /// guessing a fixed wait. Comparison is done on a small downscaled
+        /// thumbnail rather than pixel-for-pixel, both for speed and to
+        /// tolerate tiny rendering/anti-aliasing jitter between two frames
+        /// of an otherwise-static view. Caller owns the returned bitmap
+        /// (may be null if capture never succeeded even once).
         /// </summary>
-        private static System.Drawing.Bitmap CaptureStableBitmap(IntPtr mainHandle, RECT? viewportRect, int maxWaitSeconds, int checkIntervalMs = 500)
+        private static System.Drawing.Bitmap CaptureStableBitmap(IntPtr mainHandle, RECT? viewportRect, int maxWaitSeconds, int requiredStableStreak, int checkIntervalMs)
         {
             var deadline = DateTime.UtcNow.AddSeconds(maxWaitSeconds);
             byte[] previousThumbprint = null;
             System.Drawing.Bitmap previousBitmap = null;
+            var stableStreak = 0;
 
             while (true)
             {
@@ -313,7 +330,10 @@ namespace NavisTreeExporter.Plugin
                 }
 
                 var currentThumbprint = ComputeThumbprint(current);
-                var isStable = previousThumbprint != null && ThumbprintsMatch(previousThumbprint, currentThumbprint);
+                var matchedPrevious = previousThumbprint != null && ThumbprintsMatch(previousThumbprint, currentThumbprint);
+                stableStreak = matchedPrevious ? stableStreak + 1 : 0;
+
+                var isStable = stableStreak >= requiredStableStreak;
                 var timedOut = DateTime.UtcNow >= deadline;
 
                 if (isStable || timedOut)
@@ -335,10 +355,12 @@ namespace NavisTreeExporter.Plugin
         /// Waits for the viewport to stop changing (see CaptureStableBitmap)
         /// without saving anything - used to let rendering settle after a
         /// document finishes loading, before the per-viewpoint loop starts.
+        /// Uses the stricter post-load streak requirement since this is the
+        /// wait most exposed to streaming pauses on large files.
         /// </summary>
         internal static void WaitUntilStable(IntPtr mainHandle, RECT? viewportRect, int maxWaitSeconds)
         {
-            using (CaptureStableBitmap(mainHandle, viewportRect, maxWaitSeconds))
+            using (CaptureStableBitmap(mainHandle, viewportRect, maxWaitSeconds, PostLoadRequiredStableStreak, PostLoadCheckIntervalMs))
             {
                 // Only waiting for stability here - nothing to save.
             }
@@ -351,7 +373,7 @@ namespace NavisTreeExporter.Plugin
         /// </summary>
         internal static bool CaptureWhenStable(IntPtr mainHandle, RECT? viewportRect, string outputPath, int maxWaitSeconds)
         {
-            using (var bitmap = CaptureStableBitmap(mainHandle, viewportRect, maxWaitSeconds))
+            using (var bitmap = CaptureStableBitmap(mainHandle, viewportRect, maxWaitSeconds, PerViewpointRequiredStableStreak, PerViewpointCheckIntervalMs))
             {
                 if (bitmap == null) return false;
                 bitmap.Save(outputPath, ImageFormat.Png);

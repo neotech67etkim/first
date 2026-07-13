@@ -44,9 +44,12 @@
     (default 15). Increase for heavier models.
 
 .PARAMETER InitialWaitSeconds
-    Seconds to wait after the document finishes opening before the capture
-    loop starts at all (default 15). Increase if the model is slow to
-    finish rendering right after it loads.
+    Upper bound (seconds) on how long to wait for the view to settle after
+    the document finishes opening, before the capture loop starts (default
+    60). This is a cap, not a flat wait - the plugin detects settling by
+    watching for the view to hold still, so it usually finishes well under
+    this. Increase for very large models that keep streaming geometry in
+    for a long time.
 
 .PARAMETER TimeoutMinutes
     If Navisworks hasn't exited on its own within this many minutes, the
@@ -78,7 +81,7 @@ param(
 
     [int]$WaitSeconds = 15,
 
-    [int]$InitialWaitSeconds = 15,
+    [int]$InitialWaitSeconds = 60,
 
     [int]$TimeoutMinutes = 20
 )

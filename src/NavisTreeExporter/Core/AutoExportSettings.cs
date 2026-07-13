@@ -12,17 +12,22 @@ namespace NavisTreeExporter.Core
     public sealed class AutoExportSettings
     {
         private const int DefaultWaitSeconds = 15;
-        private const int DefaultInitialWaitSeconds = 15;
+        private const int DefaultInitialWaitSeconds = 60;
 
         public string OutputDir { get; }
 
         public int WaitSeconds { get; }
 
         /// <summary>
-        /// Extra grace period after a document finishes opening (i.e. once
-        /// document.Models.Count > 0) before the capture loop starts -
-        /// geometry can still be streaming/rendering in for a while after
-        /// that point on heavier models.
+        /// Upper bound (seconds) on how long to wait for the view to settle
+        /// after a document finishes opening (i.e. once
+        /// document.Models.Count > 0 and the loading dialog has closed)
+        /// before the capture loop starts. Settling is detected by the view
+        /// holding still for several consecutive checks in a row (see
+        /// ViewpointCaptureService.WaitUntilStable) rather than a flat
+        /// sleep, so this is a cap, not a wait that's always taken in full
+        /// - but it needs real headroom since large models can keep
+        /// streaming geometry in bursts well after the dialog closes.
         /// </summary>
         public int InitialWaitSeconds { get; }
 
