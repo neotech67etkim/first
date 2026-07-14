@@ -54,22 +54,29 @@
 .PARAMETER InitialWaitSeconds
     Unconditional wait (seconds), always taken in full, after the loading
     dialog closes and before the per-viewpoint capture loop starts
-    (default 60). Increase for very large models that keep streaming
-    geometry in for a long time after the dialog closes.
+    (default 300 = 5 minutes). Confirmed on a real .nwf that the dialog
+    closing does NOT mean referenced source files have finished
+    refreshing to their latest state - a plain (non-automated) open of
+    the same file showed up to date geometry, but the automated capture
+    showed stale/outdated geometry until this was raised to 300s.
+    Increase further for very large/slow-to-refresh models.
 
 .PARAMETER MinInitialWaitSeconds
     Unconditional minimum wait (seconds) applied right after the document
-    opens, before any of the above settling detection starts (default 60).
-    Unlike InitialWaitSeconds this is always taken in full - it exists
-    because there's a real gap between the document opening and
-    Navisworks' own loading dialog actually appearing, and checking for
-    that dialog too early wrongly concludes loading is already done.
-    Increase if Navisworks takes a long time just to get the loading
-    dialog on screen after launch.
+    opens, before any of the above settling detection starts (default
+    300 = 5 minutes). Unlike InitialWaitSeconds this is always taken in
+    full - it exists because there's a real gap between the document
+    opening and Navisworks' own loading dialog actually appearing, and
+    checking for that dialog too early wrongly concludes loading is
+    already done. Increase if Navisworks takes a long time just to get
+    the loading dialog on screen after launch.
 
 .PARAMETER TimeoutMinutes
     If Navisworks hasn't exited on its own within this many minutes, the
-    process is killed (default 20).
+    process is killed (default 45 - MinInitialWaitSeconds and
+    InitialWaitSeconds alone now total 10 minutes by default, plus the
+    loading-dialog wait and the per-viewpoint loop on top of that, so
+    this needs real headroom).
 
 .EXAMPLE
     .\Run-DailyViewpointExport.ps1 `
@@ -97,11 +104,11 @@ param(
 
     [int]$WaitSeconds = 15,
 
-    [int]$InitialWaitSeconds = 60,
+    [int]$InitialWaitSeconds = 300,
 
-    [int]$MinInitialWaitSeconds = 60,
+    [int]$MinInitialWaitSeconds = 300,
 
-    [int]$TimeoutMinutes = 20
+    [int]$TimeoutMinutes = 45
 )
 
 $ErrorActionPreference = "Stop"

@@ -12,8 +12,8 @@ namespace NavisTreeExporter.Core
     public sealed class AutoExportSettings
     {
         private const int DefaultWaitSeconds = 15;
-        private const int DefaultInitialWaitSeconds = 60;
-        private const int DefaultMinInitialWaitSeconds = 60;
+        private const int DefaultInitialWaitSeconds = 300;
+        private const int DefaultMinInitialWaitSeconds = 300;
 
         public string OutputDir { get; }
 
@@ -28,7 +28,14 @@ namespace NavisTreeExporter.Core
         /// pauses between geometry-streaming bursts, well before loading
         /// had actually finished - no streak length reliably told
         /// loading-paused apart from loading-done, so this is a plain flat
-        /// wait instead, same idea as MinInitialWaitSeconds.
+        /// wait instead, same idea as MinInitialWaitSeconds. Confirmed on a
+        /// real .nwf (which references source files rather than embedding
+        /// them) that the loading dialog closing does NOT mean the
+        /// references have finished refreshing to their latest state - a
+        /// plain (non-automated) open of the same file showed the up to
+        /// date model, but the automated capture showed stale/outdated
+        /// geometry until this wait was raised to 300s, so the reference
+        /// refresh genuinely can take several minutes after the dialog closes.
         /// </summary>
         public int InitialWaitSeconds { get; }
 
