@@ -705,13 +705,29 @@ namespace NavisTreeExporter.Plugin
                         // document.SavedViewpoints ones (nothing to do).
                         if (clipPlanesJson != null)
                         {
+                            log.Add($"[clip-sent] {name}: {clipPlanesJson}");
                             try
                             {
                                 document.ActiveView.SetClippingPlanes(clipPlanesJson);
+
+                                // Read the state straight back so the log
+                                // shows whether Navisworks actually accepted
+                                // what we sent, rather than silently
+                                // ignoring unrecognized fields - SetClippingPlanes
+                                // not throwing doesn't by itself prove it worked.
+                                try
+                                {
+                                    var readBack = document.ActiveView.GetClippingPlanes();
+                                    log.Add($"[clip-readback] {name}: {readBack}");
+                                }
+                                catch (Exception ex)
+                                {
+                                    log.Add($"[warn] {name}: GetClippingPlanes read-back failed ({ex.GetType().Name}: {ex.Message})");
+                                }
                             }
                             catch (Exception ex)
                             {
-                                log.Add($"[warn] {name}: failed to apply clip planes ({ex.Message})");
+                                log.Add($"[warn] {name}: failed to apply clip planes ({ex.GetType().Name}: {ex.Message})");
                             }
                         }
 
