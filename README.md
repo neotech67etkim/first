@@ -37,6 +37,8 @@ src/NavisTreeExporter/
     FileNameSanitizer.cs         파일명으로 못 쓰는 문자 치환 (공용)
     SavedViewpointCollector.cs   Document.SavedViewpoints 재귀 순회
     AutoExportSettings.cs        Export Viewpoint Images 자동 모드 환경변수 설정
+    XmlViewpointImporter.cs      저장된 관측점 XML 내보내기 파일을 직접 파싱해서
+                                  API로 관측점(카메라) 재구성 (Import API가 없어서)
   Export/
     TreeExportWriter.cs          트리를 한 번만 순회하며 JSON/CSV를 동시에
                                   파일로 스트리밍 (트리 전체를 메모리에
@@ -254,6 +256,53 @@ Navisworks를 실행하고, 위 환경 변수를 설정해준 뒤 종료를 기�
 못한 부분입니다 — 지금까지처럼 실제 빌드 오류를 보면서 맞춰나가야 할 수
 있습니다.
 
+### 진행 상황 사진용 자동 실행 (XML로 지정한 관측점 세트 사용)
+
+매번 새로 올라오는 NWD 파일을 열어서, **그 문서 자체에 저장된 관측점이
+아니라 별도로 관리하는 관측점 세트(XML 파일)**를 가져와 그걸로 캡처하고
+싶을 때 씁니다 — 예를 들어 정해진 카메라 앵글 세트로 매일 같은 위치의
+진행 상황 사진을 남기고 싶은 경우입니다.
+
+Navisworks 저장된 관측점 패널의 **"내보내기(Export)..."** 로 XML 파일을
+만들어두면 (자세한 방법은 위쪽 "다른 파일에도 관측점을 적용할 수 있나"
+관련 설명 참고), 이 XML을 그대로 읽어서 캡처에 사용합니다.
+
+**중요한 제약**: Navisworks .NET API에는 그 XML을 프로그램적으로
+"가져오기(Import)"하는 기능이 없습니다 (Autodesk 공식 포럼에서도 확인된
+내용 — UI에서 우클릭 → 가져오기로만 가능). 그래서 XML 파일을 직접
+파싱해서, 그 안의 카메라 위치/회전값으로 관측점을 API로 다시 만드는
+방식(`XmlViewpointImporter`)을 씁니다. 카메라 위치/방향 계산은 실제로
+동작하는 오픈소스 예제(BCFier의 `NavisView.cs`)의 쿼터니언 변환 로직을
+그대로 따라했지만, 이 프로젝트의 다른 부분과 마찬가지로 **아직 실제
+컴파일·실행 전이라 미검증**입니다.
+
+**알려진 제약**: XML 안의 클립 평면/단면(section) 정보는 아직 복원하지
+않습니다 — 특정 구역만 보이도록 잘라낸(clip) 관측점이라면, 지금은 잘림
+없이 전체 모델이 찍힙니다.
+
+`NAVIS_AUTO_VIEWPOINTS_XML` 환경 변수가 설정되면:
+- 그 문서의 저장된 관측점 대신 XML에서 읽은 관측점들을 사용
+- 결과 폴더명이 `yyMMdd_HH` (예: `260718_14`)
+- 파일명이 `<관측점이름>_yyMMdd.png` (진단용 태그 없이 깔끔하게)
+
+[`tools/Run-ProgressViewpointExport.ps1`](./tools/Run-ProgressViewpointExport.ps1)이
+이 모드로 실행해줍니다. `.nwf`가 아니라 **`.nwd`를 기본으로 찾습니다**
+(이 워크플로우는 QC용이 아니라 진행 상황 공유용 NWD 전용). 실행 예:
+
+```powershell
+.\Run-ProgressViewpointExport.ps1 `
+    -RoamerExe "C:\Program Files\Autodesk\Navisworks Simulate 2022\Roamer.exe" `
+    -SourceFolder "M:\06.PM\19. Digitalization\NavisVisualizer\Export_NWD\생산공유" `
+    -OutputDir "M:\06.PM\19. Digitalization\NavisVisualizer\Export_NWD\생산공유\Captured_Progress" `
+    -ViewpointsXmlPath "M:\06.PM\19. Digitalization\NavisVisualizer\Export_NWD\생산공유\Captured_Progress\Trion_관측점.xml"
+```
+
+`-SourceFolder`/`-OutputDir`/`-ViewpointsXmlPath`에 기본값을 넣지 않고
+매번 파라미터로 받는 이유는, 이 저장소가 이전에 `.ps1`/`.bat` **소스
+파일에 직접 들어간 한글 때문에 깨지는(mojibake) 문제**를 실제로 겪었기
+때문입니다 — 한글 경로를 스크립트 코드 안에 저장하는 대신, 실행할 때
+명령줄 인자로 직접 입력하도록 했습니다.
+
 ## 빌드 & 배포
 
 가장 빠른 방법: 저장소 루트의 **`build_and_deploy.bat`을 더블클릭**하면
@@ -289,8 +338,13 @@ Release/x64로 빌드한 뒤 Navisworks Plugins 폴더까지 자동으로 복사
 - [x] 로컬라이즈 라벨 인코딩(mojibake) 자동 복구
 - [x] Export Viewpoint Images 플러그인 (저장된 관측점 스크린샷 일괄 저장,
       실제 모델로 빌드·실행 검증 완료)
-- [ ] Export Viewpoint Images 자동(무인) 모드 — 매일 최신 NWD를 찾아 실행,
-      고정 대기시간으로 캡처, 서버 업로드는 별도 스크립트 (컴파일/실행 미검증)
+- [x] Export Viewpoint Images 자동(무인) 모드 — 매일 최신 파일을 찾아 실행,
+      고정 대기시간으로 캡처, 서버 업로드는 별도 스크립트 (실제 모델로
+      검증 완료 — 초기 대기시간 부족으로 예전 데이터가 캡처되는 문제를
+      실제 A/B 테스트로 확인 후 기본 대기시간을 5분으로 조정함)
+- [ ] XML로 지정한 관측점 세트를 가져와 캡처하는 모드
+      (`XmlViewpointImporter`, `Run-ProgressViewpointExport.ps1`) —
+      컴파일/실행 미검증. 클립 평면/단면 정보는 아직 미복원
 - [ ] 초대형 모델(수천만 항목, 속성 포함)의 결과 파일 자체가 수 GB로 커지는
       문제 — 압축 저장(.gz), 필요한 속성만 필터링해서 내보내기, JSON 생략(CSV만)
       등의 옵션 중 방향 결정 필요

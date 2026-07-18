@@ -53,12 +53,25 @@ namespace NavisTreeExporter.Core
         /// </summary>
         public int MinInitialWaitSeconds { get; }
 
-        private AutoExportSettings(string outputDir, int waitSeconds, int initialWaitSeconds, int minInitialWaitSeconds)
+        /// <summary>
+        /// Optional path to a Navisworks saved-viewpoints XML export. When
+        /// set, the capture loop uses XmlViewpointImporter to build
+        /// viewpoints from this file instead of whatever's already saved in
+        /// the opened document, and switches to a simpler
+        /// "&lt;name&gt;_&lt;yymmdd&gt;.png" filename / "yymmdd_HH" run-folder
+        /// naming convention (see RunAutoExport) instead of the diagnostic
+        /// L/D/S-tagged one used otherwise. Null when not set - the normal
+        /// document.SavedViewpoints / diagnostic-filename behavior applies.
+        /// </summary>
+        public string ViewpointsXmlPath { get; }
+
+        private AutoExportSettings(string outputDir, int waitSeconds, int initialWaitSeconds, int minInitialWaitSeconds, string viewpointsXmlPath)
         {
             OutputDir = outputDir;
             WaitSeconds = waitSeconds;
             InitialWaitSeconds = initialWaitSeconds;
             MinInitialWaitSeconds = minInitialWaitSeconds;
+            ViewpointsXmlPath = viewpointsXmlPath;
         }
 
         /// <summary>
@@ -83,7 +96,10 @@ namespace NavisTreeExporter.Core
             var initialWaitSeconds = ReadPositiveInt("NAVIS_AUTO_INITIAL_WAIT_SECONDS", DefaultInitialWaitSeconds);
             var minInitialWaitSeconds = ReadPositiveInt("NAVIS_AUTO_MIN_INITIAL_WAIT_SECONDS", DefaultMinInitialWaitSeconds);
 
-            return new AutoExportSettings(outputDir, waitSeconds, initialWaitSeconds, minInitialWaitSeconds);
+            var viewpointsXmlPath = Environment.GetEnvironmentVariable("NAVIS_AUTO_VIEWPOINTS_XML");
+            if (string.IsNullOrWhiteSpace(viewpointsXmlPath)) viewpointsXmlPath = null;
+
+            return new AutoExportSettings(outputDir, waitSeconds, initialWaitSeconds, minInitialWaitSeconds, viewpointsXmlPath);
         }
 
         private static int ReadPositiveInt(string envVarName, int defaultValue)

@@ -392,13 +392,16 @@ namespace NavisTreeExporter.Plugin
         /// <summary>
         /// Waits for the viewport to stop changing (see CaptureStable) and
         /// saves that capture - the auto-mode replacement for a fixed
-        /// per-viewpoint wait. The saved filename is
+        /// per-viewpoint wait. With <paramref name="tagFilename"/> true
+        /// (the default), the saved filename is
         /// "&lt;baseFileName&gt;_stableN.Ns.png" if it actually reached
         /// stability, or "&lt;baseFileName&gt;_TIMEOUTn.Ns-streakK.png" if it
         /// gave up at maxWaitSeconds instead - visible directly in a folder
-        /// listing/thumbnail view without needing to open the log.
+        /// listing/thumbnail view without needing to open the log. With it
+        /// false, the file is saved as plain "&lt;baseFileName&gt;.png" -
+        /// the outcome is still returned either way for the caller to log.
         /// </summary>
-        internal static CaptureOutcome CaptureWhenStable(IntPtr mainHandle, RECT? viewportRect, string outputDir, string baseFileName, int maxWaitSeconds)
+        internal static CaptureOutcome CaptureWhenStable(IntPtr mainHandle, RECT? viewportRect, string outputDir, string baseFileName, int maxWaitSeconds, bool tagFilename = true)
         {
             var raw = CaptureStable(mainHandle, viewportRect, maxWaitSeconds, PerViewpointRequiredStableStreak, PerViewpointCheckIntervalMs);
 
@@ -409,10 +412,16 @@ namespace NavisTreeExporter.Plugin
                     return new CaptureOutcome(false, null, raw.ElapsedSeconds, raw.Stabilized, raw.FinalStreak);
                 }
 
-                var tag = raw.Stabilized
-                    ? $"stable{raw.ElapsedSeconds:0.0}s"
-                    : $"TIMEOUT{raw.ElapsedSeconds:0.0}s-streak{raw.FinalStreak}";
-                var savedPath = Path.Combine(outputDir, baseFileName + "_" + tag + ".png");
+                var fileName = baseFileName;
+                if (tagFilename)
+                {
+                    var tag = raw.Stabilized
+                        ? $"stable{raw.ElapsedSeconds:0.0}s"
+                        : $"TIMEOUT{raw.ElapsedSeconds:0.0}s-streak{raw.FinalStreak}";
+                    fileName += "_" + tag;
+                }
+
+                var savedPath = Path.Combine(outputDir, fileName + ".png");
                 raw.Bitmap.Save(savedPath, ImageFormat.Png);
                 return new CaptureOutcome(true, savedPath, raw.ElapsedSeconds, raw.Stabilized, raw.FinalStreak);
             }
@@ -608,25 +617,51 @@ namespace NavisTreeExporter.Plugin
         /// _export_log.txt reads as one continuous timeline of the whole
         /// run, not just the per-viewpoint part. <paramref name="mainHandle"/>
         /// is the window already found/foregrounded by the caller, reused
-        /// here instead of looking it up again. <paramref name="fileNamePrefix"/>
-        /// (the caller's wait-stage timings, e.g. "L60_D42_S60_") is
-        /// prepended to every saved image's filename so that timing
-        /// summary is visible directly in a folder listing without opening
-        /// the log.
+        /// here instead of looking it up again.
+        ///
+        /// When <see cref="AutoExportSettings.ViewpointsXmlPath"/> is set,
+        /// viewpoints come from XmlViewpointImporter instead of the
+        /// document's own saved viewpoints, the run folder is named
+        /// "yyMMdd_HH", and each file is named plainly
+        /// "&lt;viewpoint name&gt;_yyMMdd.png" (no diagnostic tag). Otherwise
+        /// (the original behavior) <paramref name="fileNamePrefix"/> (the
+        /// caller's wait-stage timings, e.g. "L300_D42_S300_") is prepended
+        /// to every filename and the diagnostic stable/timeout tag is kept,
+        /// so that timing summary is visible directly in a folder listing
+        /// without opening the log.
         /// </summary>
         internal static void RunAutoExport(Document document, AutoExportSettings settings, IntPtr mainHandle, List<string> log, string fileNamePrefix)
         {
             var savedCount = 0;
             var totalCount = 0;
             string subfolder = null;
+            var runTimestamp = DateTime.Now;
+            var useXmlViewpoints = !string.IsNullOrEmpty(settings.ViewpointsXmlPath);
 
             try
             {
-                var viewpoints = SavedViewpointCollector.Collect(document);
-                totalCount = viewpoints.Count;
-                log.Add($"[{DateTime.Now:O}] Found {totalCount} saved viewpoint(s).");
+                List<(string Name, Viewpoint Viewpoint)> viewpoints;
+                if (useXmlViewpoints)
+                {
+                    log.Add($"[{DateTime.Now:O}] Loading viewpoints from XML: {settings.ViewpointsXmlPath}");
+                    viewpoints = XmlViewpointImporter.Load(document, settings.ViewpointsXmlPath);
+                }
+                else
+                {
+                    var savedViewpoints = SavedViewpointCollector.Collect(document);
+                    viewpoints = new List<(string, Viewpoint)>(savedViewpoints.Count);
+                    foreach (var sv in savedViewpoints)
+                    {
+                        viewpoints.Add((sv.Path, sv.Viewpoint.Viewpoint));
+                    }
+                }
 
-                subfolder = Path.Combine(settings.OutputDir, BuildRunFolderName(document));
+                totalCount = viewpoints.Count;
+                log.Add($"[{DateTime.Now:O}] Found {totalCount} viewpoint(s).");
+
+                subfolder = Path.Combine(settings.OutputDir, useXmlViewpoints
+                    ? BuildProgressRunFolderName(runTimestamp)
+                    : BuildRunFolderName(document));
                 Directory.CreateDirectory(subfolder);
 
                 if (mainHandle == IntPtr.Zero)
@@ -643,21 +678,21 @@ namespace NavisTreeExporter.Plugin
 
                     for (var i = 0; i < viewpoints.Count; i++)
                     {
-                        var (path, viewpoint) = viewpoints[i];
+                        var (name, viewpoint) = viewpoints[i];
 
                         try
                         {
-                            document.CurrentViewpoint.CopyFrom(viewpoint.Viewpoint);
+                            document.CurrentViewpoint.CopyFrom(viewpoint);
                         }
                         catch (Exception ex)
                         {
-                            log.Add($"[skip] {path}: failed to apply viewpoint ({ex.Message})");
+                            log.Add($"[skip] {name}: failed to apply viewpoint ({ex.Message})");
                             continue;
                         }
 
                         System.Windows.Forms.Application.DoEvents();
 
-                        var fileName = FileNameSanitizer.Sanitize(path, "Viewpoint" + i);
+                        var fileName = FileNameSanitizer.Sanitize(name, "Viewpoint" + i);
                         var uniqueFileName = fileName;
                         var suffix = 1;
                         while (!usedNames.Add(uniqueFileName))
@@ -666,20 +701,24 @@ namespace NavisTreeExporter.Plugin
                             suffix++;
                         }
 
+                        var baseFileName = useXmlViewpoints
+                            ? uniqueFileName + "_" + runTimestamp.ToString("yyMMdd")
+                            : fileNamePrefix + uniqueFileName;
+
                         // Waits for several consecutive captures to look the
                         // same (capped at settings.WaitSeconds) instead of a
                         // fixed sleep, so it adapts to how long this
                         // particular viewpoint actually takes to render.
-                        var outcome = CaptureWhenStable(mainHandle, viewportRect, subfolder, fileNamePrefix + uniqueFileName, settings.WaitSeconds);
+                        var outcome = CaptureWhenStable(mainHandle, viewportRect, subfolder, baseFileName, settings.WaitSeconds, !useXmlViewpoints);
                         if (outcome.Success)
                         {
                             savedCount++;
-                            log.Add($"[ok] {path} -> {Path.GetFileName(outcome.SavedPath)} " +
+                            log.Add($"[ok] {name} -> {Path.GetFileName(outcome.SavedPath)} " +
                                 $"(stabilized={outcome.Stabilized}, elapsed={outcome.ElapsedSeconds:0.0}s, streak={outcome.FinalStreak})");
                         }
                         else
                         {
-                            log.Add($"[fail] {path}: capture failed after {outcome.ElapsedSeconds:0.0}s (streak={outcome.FinalStreak})");
+                            log.Add($"[fail] {name}: capture failed after {outcome.ElapsedSeconds:0.0}s (streak={outcome.FinalStreak})");
                         }
 
                         // Flush after every viewpoint, not just at the end -
@@ -728,6 +767,11 @@ namespace NavisTreeExporter.Plugin
             {
                 Environment.Exit(0);
             }
+        }
+
+        private static string BuildProgressRunFolderName(DateTime timestamp)
+        {
+            return timestamp.ToString("yyMMdd_HH");
         }
 
         private static string BuildRunFolderName(Document document)
