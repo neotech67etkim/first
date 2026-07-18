@@ -32,16 +32,32 @@ namespace NavisTreeExporter.Core
     /// but - like the rest of this project - is still unverified against a
     /// real build/run.
     ///
-    /// NOTE: clip planes (&lt;clipplaneset&gt;) in the XML are NOT
-    /// reconstructed. A section/clip-box view will currently capture
-    /// unclipped (the full model, not just the clipped region) until this
-    /// is added.
+    /// NOTE: clip plane (&lt;clipplaneset&gt;) reconstruction is the least
+    /// confident part of this file. There's no directly-documented .NET API
+    /// for it either - the closest found is View.GetClippingPlanes()/
+    /// SetClippingPlanes(string json) taking a JSON-serialized clip plane
+    /// description (confirmed to exist via Autodesk forum posts showing a
+    /// "ClipPlaneSet"/"OrientedBox3D" JSON example for section-box
+    /// clipping), which is what BuildClipPlanesJson below constructs. The
+    /// exact JSON key names/casing are a best-effort guess by analogy with
+    /// that example and Rotation3D's own A/B/C/D property names, not
+    /// confirmed against real output - likely to need adjustment from a
+    /// real run. A real exported file has 6 named half-space planes
+    /// (top/bottom/front/back/left/right, only some "enabled" - the rest
+    /// "default"/inactive) in the box's own rotated local frame rather
+    /// than a world-space box, converted into local min/max here using the
+    /// plane semantics worked out from a real sample (a viewpoint with
+    /// only top+bottom "enabled" turned out to be a thin horizontal slice
+    /// of one floor/deck, which only makes sense if the kept region is
+    /// where dot(Normal, Point) &gt; Distance for each enabled plane).
     /// </summary>
     public static class XmlViewpointImporter
     {
-        public static List<(string Name, Viewpoint Viewpoint)> Load(Document document, string xmlPath)
+        private const double UnboundedExtent = 1000000;
+
+        public static List<(string Name, Viewpoint Viewpoint, string ClipPlanesJson)> Load(Document document, string xmlPath)
         {
-            var results = new List<(string, Viewpoint)>();
+            var results = new List<(string, Viewpoint, string)>();
             var xml = XDocument.Load(xmlPath);
 
             foreach (var viewElement in xml.Descendants("view"))
@@ -92,10 +108,76 @@ namespace NavisTreeExporter.Core
                     viewpoint.HeightField = angular;
                 }
 
-                results.Add((name, viewpoint));
+                var clipJson = BuildClipPlanesJson(viewElement.Element("clipplaneset"));
+
+                results.Add((name, viewpoint, clipJson));
             }
 
             return results;
+        }
+
+        /// <summary>
+        /// Builds the JSON for View.SetClippingPlanes from a &lt;clipplaneset&gt;
+        /// element, or the "disabled" JSON if that element is missing/not
+        /// enabled - every viewpoint needs an explicit disable, not just
+        /// the ones without clipping, since clip state is set on the
+        /// document's active view and would otherwise leak from whichever
+        /// viewpoint was captured previously in the same run.
+        /// </summary>
+        private static string BuildClipPlanesJson(XElement clipplaneset)
+        {
+            var enabled = clipplaneset != null && (string)clipplaneset.Attribute("enabled") == "1";
+
+            var minX = -UnboundedExtent, maxX = UnboundedExtent;
+            var minY = -UnboundedExtent, maxY = UnboundedExtent;
+            var minZ = -UnboundedExtent, maxZ = UnboundedExtent;
+            double ra = 0, rb = 0, rc = 0, rd = 1;
+
+            if (enabled)
+            {
+                var rotationElement = clipplaneset.Element("box-rotation")?.Element("rotation")?.Element("quaternion");
+                if (rotationElement != null)
+                {
+                    ra = ParseDouble(rotationElement.Attribute("a"));
+                    rb = ParseDouble(rotationElement.Attribute("b"));
+                    rc = ParseDouble(rotationElement.Attribute("c"));
+                    rd = ParseDouble(rotationElement.Attribute("d"));
+                }
+
+                var clipplanesElement = clipplaneset.Element("clipplanes");
+                if (clipplanesElement != null)
+                {
+                    foreach (var clipplane in clipplanesElement.Elements("clipplane"))
+                    {
+                        if ((string)clipplane.Attribute("state") != "enabled") continue;
+
+                        var planeElement = clipplane.Element("plane");
+                        if (planeElement == null) continue;
+                        var distance = ParseDouble(planeElement.Attribute("distance"));
+
+                        switch ((string)clipplane.Attribute("alignment"))
+                        {
+                            case "top": maxZ = distance; break;
+                            case "bottom": minZ = distance; break;
+                            case "front": maxY = distance; break;
+                            case "back": minY = distance; break;
+                            case "right": maxX = distance; break;
+                            case "left": minX = distance; break;
+                        }
+                    }
+                }
+            }
+
+            var inv = CultureInfo.InvariantCulture;
+            return "{\"Type\":\"ClipPlaneSet\",\"Version\":1,\"OrientedBox\":{"
+                + "\"Type\":\"OrientedBox3D\","
+                + "\"Enabled\":" + (enabled ? "true" : "false") + ","
+                + "\"Box\":{"
+                + "\"Min\":{\"X\":" + minX.ToString(inv) + ",\"Y\":" + minY.ToString(inv) + ",\"Z\":" + minZ.ToString(inv) + "},"
+                + "\"Max\":{\"X\":" + maxX.ToString(inv) + ",\"Y\":" + maxY.ToString(inv) + ",\"Z\":" + maxZ.ToString(inv) + "}"
+                + "},"
+                + "\"Rotation\":{\"X\":" + ra.ToString(inv) + ",\"Y\":" + rb.ToString(inv) + ",\"Z\":" + rc.ToString(inv) + ",\"W\":" + rd.ToString(inv) + "}"
+                + "}}";
         }
 
         private static double ParseDouble(XAttribute attribute)

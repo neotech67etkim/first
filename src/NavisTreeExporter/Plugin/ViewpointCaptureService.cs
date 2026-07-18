@@ -640,7 +640,7 @@ namespace NavisTreeExporter.Plugin
 
             try
             {
-                List<(string Name, Viewpoint Viewpoint)> viewpoints;
+                List<(string Name, Viewpoint Viewpoint, string ClipPlanesJson)> viewpoints;
                 if (useXmlViewpoints)
                 {
                     log.Add($"[{DateTime.Now:O}] Loading viewpoints from XML: {settings.ViewpointsXmlPath}");
@@ -649,10 +649,14 @@ namespace NavisTreeExporter.Plugin
                 else
                 {
                     var savedViewpoints = SavedViewpointCollector.Collect(document);
-                    viewpoints = new List<(string, Viewpoint)>(savedViewpoints.Count);
+                    viewpoints = new List<(string, Viewpoint, string)>(savedViewpoints.Count);
                     foreach (var sv in savedViewpoints)
                     {
-                        viewpoints.Add((sv.Path, sv.Viewpoint.Viewpoint));
+                        // No clip-plane JSON here - real SavedViewpoint objects
+                        // (as opposed to the XML-reconstructed ones) already
+                        // carry their own clip state through CopyFrom, so
+                        // there's nothing extra to apply for this path.
+                        viewpoints.Add((sv.Path, sv.Viewpoint.Viewpoint, null));
                     }
                 }
 
@@ -678,7 +682,7 @@ namespace NavisTreeExporter.Plugin
 
                     for (var i = 0; i < viewpoints.Count; i++)
                     {
-                        var (name, viewpoint) = viewpoints[i];
+                        var (name, viewpoint, clipPlanesJson) = viewpoints[i];
 
                         try
                         {
@@ -688,6 +692,27 @@ namespace NavisTreeExporter.Plugin
                         {
                             log.Add($"[skip] {name}: failed to apply viewpoint ({ex.Message})");
                             continue;
+                        }
+
+                        // Clip state lives on the active view, not the
+                        // viewpoint itself, so it has to be (re-)applied
+                        // every time - otherwise a section from an earlier
+                        // XML-sourced viewpoint in this same run would leak
+                        // into the next one's capture. clipPlanesJson is
+                        // always non-null for XML-sourced viewpoints (it
+                        // explicitly disables clipping when the XML didn't
+                        // have any enabled), and always null for
+                        // document.SavedViewpoints ones (nothing to do).
+                        if (clipPlanesJson != null)
+                        {
+                            try
+                            {
+                                document.ActiveView.SetClippingPlanes(clipPlanesJson);
+                            }
+                            catch (Exception ex)
+                            {
+                                log.Add($"[warn] {name}: failed to apply clip planes ({ex.Message})");
+                            }
                         }
 
                         System.Windows.Forms.Application.DoEvents();
