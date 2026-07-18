@@ -128,9 +128,9 @@ namespace NavisTreeExporter.Core
         {
             var enabled = clipplaneset != null && (string)clipplaneset.Attribute("enabled") == "1";
 
-            var minX = -UnboundedExtent, maxX = UnboundedExtent;
-            var minY = -UnboundedExtent, maxY = UnboundedExtent;
-            var minZ = -UnboundedExtent, maxZ = UnboundedExtent;
+            double minX = -UnboundedExtent, maxX = UnboundedExtent;
+            double minY = -UnboundedExtent, maxY = UnboundedExtent;
+            double minZ = -UnboundedExtent, maxZ = UnboundedExtent;
             double ra = 0, rb = 0, rc = 0, rd = 1;
 
             if (enabled)
