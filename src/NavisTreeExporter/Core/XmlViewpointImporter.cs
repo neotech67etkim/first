@@ -155,17 +155,47 @@ namespace NavisTreeExporter.Core
                         if (planeElement == null) continue;
                         var distance = ParseDouble(planeElement.Attribute("distance"));
 
+                        // The plane equation is dot(Normal, P) = distance, not
+                        // "distance is the coordinate" - for a normal pointing
+                        // in the negative direction on its axis (seen on a
+                        // real sample: "top" had normal (0,0,-1)), the actual
+                        // boundary coordinate is distance * normal-component-
+                        // on-that-axis (which flips the sign when that
+                        // component is -1). Missing this produced an inverted
+                        // (min > max) box that Navisworks rejected outright
+                        // ("ArgumentException: Failed to set clipping planes")
+                        // on a real run.
+                        var normalElement = planeElement.Element("vec3f");
+                        var nx = 1.0;
+                        var ny = 1.0;
+                        var nz = 1.0;
+                        if (normalElement != null)
+                        {
+                            nx = ParseDouble(normalElement.Attribute("x"));
+                            ny = ParseDouble(normalElement.Attribute("y"));
+                            nz = ParseDouble(normalElement.Attribute("z"));
+                        }
+
                         switch ((string)clipplane.Attribute("alignment"))
                         {
-                            case "top": maxZ = distance; break;
-                            case "bottom": minZ = distance; break;
-                            case "front": maxY = distance; break;
-                            case "back": minY = distance; break;
-                            case "right": maxX = distance; break;
-                            case "left": minX = distance; break;
+                            case "top": maxZ = distance * (nz != 0 ? nz : 1); break;
+                            case "bottom": minZ = distance * (nz != 0 ? nz : 1); break;
+                            case "front": maxY = distance * (ny != 0 ? ny : 1); break;
+                            case "back": minY = distance * (ny != 0 ? ny : 1); break;
+                            case "right": maxX = distance * (nx != 0 ? nx : 1); break;
+                            case "left": minX = distance * (nx != 0 ? nx : 1); break;
                         }
                     }
                 }
+
+                // Safety net: if, despite the above, an axis still ended up
+                // inverted (min > max) - e.g. an alignment/normal
+                // combination not seen in the one real sample this was
+                // built against - swap it rather than sending Navisworks an
+                // invalid box it will reject outright.
+                if (minX > maxX) { var t = minX; minX = maxX; maxX = t; }
+                if (minY > maxY) { var t = minY; minY = maxY; maxY = t; }
+                if (minZ > maxZ) { var t = minZ; minZ = maxZ; maxZ = t; }
             }
 
             var inv = CultureInfo.InvariantCulture;
