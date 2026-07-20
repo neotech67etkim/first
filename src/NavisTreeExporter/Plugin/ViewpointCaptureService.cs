@@ -676,6 +676,25 @@ namespace NavisTreeExporter.Plugin
                 {
                     log.Add($"Using main window: {DescribeWindow(mainHandle)}");
 
+                    // Diagnostic: log whatever Navisworks' own default/current
+                    // clip state JSON looks like, straight from GetClippingPlanes,
+                    // before we ever call SetClippingPlanes ourselves - our
+                    // constructed JSON is a guess and has been rejected outright
+                    // by SetClippingPlanes even after fixing an obvious min>max
+                    // bug, so seeing Navisworks' own real schema is the fastest
+                    // way to find out what's actually different about it.
+                    if (useXmlViewpoints)
+                    {
+                        try
+                        {
+                            log.Add($"[clip-default] {document.ActiveView.GetClippingPlanes()}");
+                        }
+                        catch (Exception ex)
+                        {
+                            log.Add($"[warn] GetClippingPlanes (default state) failed: {ex.GetType().Name}: {ex.Message}");
+                        }
+                    }
+
                     BringToForeground(mainHandle);
                     var viewportRect = ComputeViewportRect(mainHandle);
                     var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
