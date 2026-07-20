@@ -58,13 +58,17 @@
 .PARAMETER InitialWaitSeconds
     Unconditional wait (seconds), always taken in full, after the loading
     dialog closes and before the per-viewpoint capture loop starts
-    (default 300 = 5 minutes - confirmed necessary on a real file since
-    referenced source data can keep refreshing in the background for
-    several minutes after the dialog closes).
+    (default 120 = 2 minutes). The 300s/5-minute default used by
+    Run-DailyViewpointExport.ps1 was confirmed necessary there via a real
+    A/B test on a .nwf file, where referenced source data kept refreshing
+    in the background for several minutes after the dialog closed - but
+    this script targets .nwd files, which are self-contained exports with
+    no external references to refresh, so a shorter wait is expected to
+    be enough here.
 
 .PARAMETER MinInitialWaitSeconds
     Unconditional minimum wait (seconds) applied right after the document
-    opens, before watching for the loading dialog at all (default 300 = 5
+    opens, before watching for the loading dialog at all (default 120 = 2
     minutes - there's a real gap before the dialog even appears).
 
 .PARAMETER TimeoutMinutes
@@ -101,9 +105,9 @@ param(
 
     [int]$WaitSeconds = 15,
 
-    [int]$InitialWaitSeconds = 300,
+    [int]$InitialWaitSeconds = 120,
 
-    [int]$MinInitialWaitSeconds = 300,
+    [int]$MinInitialWaitSeconds = 120,
 
     [int]$TimeoutMinutes = 45
 )
