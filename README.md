@@ -277,32 +277,34 @@ Navisworks 저장된 관측점 패널의 **"내보내기(Export)..."** 로 XML �
 컴파일·실행 전이라 미검증**입니다.
 
 **클립 평면/단면(section) 처리**: 관측점마다 서로 다른 단면처리(클립
-박스)가 걸려있는 실제 파일로 확인된 문제라 추가했습니다. 다만 이 부분은
-지금까지 만든 것 중 **가장 불확실한 부분**입니다 — Navisworks .NET API
-문서에 클립 평면을 직접 다루는 프로퍼티가 명시적으로 나와있지 않고,
+박스)가 걸려있는 실제 파일로 확인된 문제라 추가했습니다.
 `View.GetClippingPlanes()`/`SetClippingPlanes(json문자열)`이라는, JSON
-문자열을 주고받는 방식의 API만 확인했을 뿐입니다.
+문자열을 주고받는 방식의 API를 쓰는데, 처음엔 이 JSON의 정확한 스키마가
+문서화된 곳이 없어 여러 번 추측했다가 매번 같은
+`ArgumentException: Failed to set clipping planes`로 거부당했습니다.
 
-최상위 JSON 구조는 실제 `GetClippingPlanes()` 호출 결과로 확인했습니다
-(클립이 꺼진 실제 뷰에서): `{"Type":"ClipPlaneSet","Version":1,
-"Planes":[],"Linked":false,"Enabled":false}`. 하지만 `"Planes"` 배열 안,
-평면 하나하나의 정확한 키 이름/중첩 구조는 여전히 미확인입니다 — 처음
-추정한 형식(`{"Normal":{...},"Distance":...,"Enabled":...}`)은 최상위
-구조가 맞는데도 `SetClippingPlanes`가 매번 같은
-`ArgumentException: Failed to set clipping planes`로 거부했습니다.
+최종적으로는 **추측 대신 실측**으로 해결했습니다: 진단용 리본 버튼
+(`DebugClipPlanesAddin`, Add-Ins 탭의 "Debug: Show Clip Planes JSON")을
+추가해서, Navisworks 자체 단면(Sectioning) 도구로 실제로 클립 평면을 켠
+뷰에서 `GetClippingPlanes()`가 뭘 반환하는지 직접 확인했습니다. 실제
+스키마는:
 
-그래서 한 번의 실행 안에서 **여러 후보 JSON 형식을 순서대로 시도**하도록
-바꿨습니다(`XmlViewpointImporter.BuildClipPlaneJsonVariants`) — 관측점당
-5가지 인코딩(`flat-all6`, `flat-enabledOnly`, `nested-all6`,
-`nested-enabledOnly`, `flat-state-all6`)을 차례로 `SetClippingPlanes`에
-넣어보고, 예외 없이 받아들여지는 첫 번째 것을 채택합니다. 대기시간과 달리
-이 시도들은 문서가 이미 열려있는 상태에서 밀리초 단위로 끝나므로, 매번
-몇 분씩 기다렸다가 하나씩 테스트하는 대신 한 번의 실행으로 다 확인할 수
-있습니다. 로그(`_export_log.txt`)에 관측점마다 `[clip-try]`/
-`[clip-success]`/`[clip-fail]`/`[clip-allfailed]` 줄이 남으므로, 실제
-실행 후 어느 형식이 성공했는지(또는 전부 실패했는지) 바로 확인할 수
-있습니다. 성공하는 형식이 확인되면 `BuildClipPlaneJsonVariants`를 그
-하나로 단순화할 예정입니다.
+```json
+{"Type":"ClipPlaneSet","Version":1,
+ "Planes":[
+   {"Type":"ClipPlane","Version":1,"Normal":[0,0,-1],"Distance":-65.18...,"Enabled":true},
+   {"Type":"ClipPlane","Version":1,"Normal":[0,0,1],"Distance":59.30...,"Enabled":true}
+ ],
+ "Linked":false,"Enabled":true}
+```
+
+처음 추측했던 형식들이 전부 틀렸던 이유가 드러났습니다 — `"Normal"`이
+`{"X":..,"Y":..,"Z":..}` 객체가 아니라 **`[X,Y,Z]` 배열**이었고, 평면
+객체 각각도 자기만의 `"Type"`/`"Version"`을 갖고 있었으며, 비활성 평면은
+아예 `"Planes"` 배열에 들어가지 않습니다(6개를 다 넣는 게 아니라 켜진
+것만). `XmlViewpointImporter.BuildClipPlaneJson`을 이 확인된 스키마로
+다시 작성했습니다. `DebugClipPlanesAddin` 버튼은 앞으로 비슷한 문제가
+생기면 다시 쓸 수 있도록 남겨뒀습니다.
 
 `NAVIS_AUTO_VIEWPOINTS_XML` 환경 변수가 설정되면:
 - 그 문서의 저장된 관측점 대신 XML에서 읽은 관측점들을 사용
@@ -368,10 +370,11 @@ Release/x64로 빌드한 뒤 Navisworks Plugins 폴더까지 자동으로 복사
       실제 A/B 테스트로 확인 후 기본 대기시간을 5분으로 조정함)
 - [ ] XML로 지정한 관측점 세트를 가져와 캡처하는 모드
       (`XmlViewpointImporter`, `Run-ProgressViewpointExport.ps1`) — 카메라
-      위치/방향은 실제 모델로 캡처 자체는 성공 확인. 클립 평면/단면은
-      `SetClippingPlanes`의 정확한 per-plane JSON 스키마가 아직 미확인 —
-      실행마다 후보 5가지를 순서대로 시도하고 로그에 결과를 남기는
-      방식(`BuildClipPlaneJsonVariants`)으로 검증 진행 중
+      위치/방향은 실제 모델로 캡처 자체는 성공 확인. 클립 평면 JSON
+      스키마는 진단용 버튼(`DebugClipPlanesAddin`)으로 실측해서 확정했고
+      코드도 그에 맞게 재작성함 (자세한 내용은 위쪽 "클립 평면/단면 처리"
+      참고) — 다만 이 확정된 스키마로 실제 캡처까지 검증하는 건 다음 실행
+      결과 확인 대기 중
 - [ ] 초대형 모델(수천만 항목, 속성 포함)의 결과 파일 자체가 수 GB로 커지는
       문제 — 압축 저장(.gz), 필요한 속성만 필터링해서 내보내기, JSON 생략(CSV만)
       등의 옵션 중 방향 결정 필요

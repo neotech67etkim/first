@@ -640,7 +640,7 @@ namespace NavisTreeExporter.Plugin
 
             try
             {
-                List<(string Name, Viewpoint Viewpoint, List<(string Label, string Json)> ClipPlaneVariants)> viewpoints;
+                List<(string Name, Viewpoint Viewpoint, string ClipPlanesJson)> viewpoints;
                 if (useXmlViewpoints)
                 {
                     log.Add($"[{DateTime.Now:O}] Loading viewpoints from XML: {settings.ViewpointsXmlPath}");
@@ -649,14 +649,13 @@ namespace NavisTreeExporter.Plugin
                 else
                 {
                     var savedViewpoints = SavedViewpointCollector.Collect(document);
-                    viewpoints = new List<(string, Viewpoint, List<(string, string)>)>(savedViewpoints.Count);
+                    viewpoints = new List<(string, Viewpoint, string)>(savedViewpoints.Count);
                     foreach (var sv in savedViewpoints)
                     {
-                        // No clip-plane variants here - real SavedViewpoint
-                        // objects (as opposed to the XML-reconstructed ones)
-                        // already carry their own clip state through
-                        // CopyFrom, so there's nothing extra to apply for
-                        // this path.
+                        // No clip-plane JSON here - real SavedViewpoint objects
+                        // (as opposed to the XML-reconstructed ones) already
+                        // carry their own clip state through CopyFrom, so
+                        // there's nothing extra to apply for this path.
                         viewpoints.Add((sv.Path, sv.Viewpoint.Viewpoint, null));
                     }
                 }
@@ -677,32 +676,13 @@ namespace NavisTreeExporter.Plugin
                 {
                     log.Add($"Using main window: {DescribeWindow(mainHandle)}");
 
-                    // Diagnostic: log whatever Navisworks' own default/current
-                    // clip state JSON looks like, straight from GetClippingPlanes,
-                    // before we ever call SetClippingPlanes ourselves - our
-                    // constructed JSON is a guess and has been rejected outright
-                    // by SetClippingPlanes even after fixing an obvious min>max
-                    // bug, so seeing Navisworks' own real schema is the fastest
-                    // way to find out what's actually different about it.
-                    if (useXmlViewpoints)
-                    {
-                        try
-                        {
-                            log.Add($"[clip-default] {document.ActiveView.GetClippingPlanes()}");
-                        }
-                        catch (Exception ex)
-                        {
-                            log.Add($"[warn] GetClippingPlanes (default state) failed: {ex.GetType().Name}: {ex.Message}");
-                        }
-                    }
-
                     BringToForeground(mainHandle);
                     var viewportRect = ComputeViewportRect(mainHandle);
                     var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
                     for (var i = 0; i < viewpoints.Count; i++)
                     {
-                        var (name, viewpoint, clipPlaneVariants) = viewpoints[i];
+                        var (name, viewpoint, clipPlanesJson) = viewpoints[i];
 
                         try
                         {
@@ -718,57 +698,22 @@ namespace NavisTreeExporter.Plugin
                         // viewpoint itself, so it has to be (re-)applied
                         // every time - otherwise a section from an earlier
                         // XML-sourced viewpoint in this same run would leak
-                        // into the next one's capture. clipPlaneVariants is
-                        // always non-null/non-empty for XML-sourced
-                        // viewpoints (it explicitly disables clipping when
-                        // the XML didn't have any enabled), and always null
-                        // for document.SavedViewpoints ones (nothing to
-                        // do). The exact per-plane JSON schema Navisworks
-                        // expects inside SetClippingPlanes is still
-                        // unconfirmed (every single-guess attempt so far
-                        // has failed with the same generic
-                        // ArgumentException), so several candidate
-                        // encodings are tried in order here and the first
-                        // one that doesn't throw wins - logged individually
-                        // so a real run's log tells us which (if any)
-                        // Navisworks actually accepts.
-                        if (clipPlaneVariants != null && clipPlaneVariants.Count > 0)
+                        // into the next one's capture. clipPlanesJson is
+                        // always non-null for XML-sourced viewpoints (it
+                        // explicitly disables clipping when the XML didn't
+                        // have any enabled), and always null for
+                        // document.SavedViewpoints ones (nothing to do).
+                        if (clipPlanesJson != null)
                         {
-                            var appliedLabel = (string)null;
-                            foreach (var (label, json) in clipPlaneVariants)
+                            log.Add($"[clip-sent] {name}: {clipPlanesJson}");
+                            try
                             {
-                                log.Add($"[clip-try] {name} [{label}]: {json}");
-                                try
-                                {
-                                    document.ActiveView.SetClippingPlanes(json);
-                                    appliedLabel = label;
-                                    log.Add($"[clip-success] {name} [{label}]");
-
-                                    // Read the state straight back so the log
-                                    // shows what Navisworks actually stored,
-                                    // rather than trusting that not throwing
-                                    // means it stored exactly what we sent.
-                                    try
-                                    {
-                                        var readBack = document.ActiveView.GetClippingPlanes();
-                                        log.Add($"[clip-readback] {name}: {readBack}");
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        log.Add($"[warn] {name}: GetClippingPlanes read-back failed ({ex.GetType().Name}: {ex.Message})");
-                                    }
-
-                                    break;
-                                }
-                                catch (Exception ex)
-                                {
-                                    log.Add($"[clip-fail] {name} [{label}]: {ex.GetType().Name}: {ex.Message}");
-                                }
+                                document.ActiveView.SetClippingPlanes(clipPlanesJson);
+                                log.Add($"[clip-success] {name}");
                             }
-
-                            if (appliedLabel == null)
+                            catch (Exception ex)
                             {
-                                log.Add($"[clip-allfailed] {name}: none of {clipPlaneVariants.Count} variant(s) were accepted");
+                                log.Add($"[warn] {name}: failed to apply clip planes ({ex.GetType().Name}: {ex.Message})");
                             }
                         }
 

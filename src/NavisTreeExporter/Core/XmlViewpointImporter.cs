@@ -35,19 +35,18 @@ namespace NavisTreeExporter.Core
     /// NOTE: clip plane (&lt;clipplaneset&gt;) reconstruction uses
     /// View.SetClippingPlanes(string json) - confirmed to exist and take a
     /// JSON-serialized clip plane description, but not documented anywhere
-    /// found. Calling View.GetClippingPlanes() on a real (disabled) view
-    /// confirmed the top-level shape directly:
-    /// {"Type":"ClipPlaneSet","Version":1,"Planes":[],"Linked":false,"Enabled":false}
-    /// - matching the XML's own &lt;clipplaneset linked="" enabled=""
-    /// mode="planes"&gt; almost exactly. But the individual plane object's
-    /// own keys are still unconfirmed - a first guess
-    /// ({"Normal":{...},"Distance":...,"Enabled":...} per plane) was
-    /// rejected outright by SetClippingPlanes on a real run even with a
-    /// valid top-level shape, meaning something about the per-plane
-    /// encoding is wrong. BuildClipPlaneJsonVariants below produces several
-    /// plausible encodings instead of a single guess; RunAutoExport tries
-    /// each in turn per viewpoint (only a few milliseconds each, no extra
-    /// waiting involved) and logs which one Navisworks actually accepts.
+    /// found. The schema is now confirmed directly (not guessed): a
+    /// diagnostic ribbon button (DebugClipPlanesAddin) read back
+    /// View.GetClippingPlanes() on a real view with a clip plane pair
+    /// manually enabled through Navisworks' own Sectioning tools, giving
+    /// {"Type":"ClipPlaneSet","Version":1,"Planes":[{"Type":"ClipPlane",
+    /// "Version":1,"Normal":[0,0,-1],"Distance":-65.18...,"Enabled":true},
+    /// ...],"Linked":false,"Enabled":true}. Earlier guesses all encoded
+    /// "Normal" as an {"X":..,"Y":..,"Z":..} object and were rejected
+    /// outright regardless of the rest of the shape - the real schema uses
+    /// a plain [X,Y,Z] array, each plane object also carries its own
+    /// "Type"/"Version", and disabled planes are omitted from "Planes"
+    /// entirely rather than included with "Enabled":false.
     /// </summary>
     public static class XmlViewpointImporter
     {
@@ -57,23 +56,19 @@ namespace NavisTreeExporter.Core
             internal double Ny { get; }
             internal double Nz { get; }
             internal double Distance { get; }
-            internal bool Enabled { get; }
-            internal string Alignment { get; }
 
-            internal PlaneData(double nx, double ny, double nz, double distance, bool enabled, string alignment)
+            internal PlaneData(double nx, double ny, double nz, double distance)
             {
                 Nx = nx;
                 Ny = ny;
                 Nz = nz;
                 Distance = distance;
-                Enabled = enabled;
-                Alignment = alignment;
             }
         }
 
-        public static List<(string Name, Viewpoint Viewpoint, List<(string Label, string Json)> ClipPlaneVariants)> Load(Document document, string xmlPath)
+        public static List<(string Name, Viewpoint Viewpoint, string ClipPlanesJson)> Load(Document document, string xmlPath)
         {
-            var results = new List<(string, Viewpoint, List<(string, string)>)>();
+            var results = new List<(string, Viewpoint, string)>();
             var xml = XDocument.Load(xmlPath);
 
             foreach (var viewElement in xml.Descendants("view"))
@@ -124,26 +119,30 @@ namespace NavisTreeExporter.Core
                     viewpoint.HeightField = angular;
                 }
 
-                var clipVariants = BuildClipPlaneJsonVariants(viewElement.Element("clipplaneset"));
+                var clipJson = BuildClipPlaneJson(viewElement.Element("clipplaneset"));
 
-                results.Add((name, viewpoint, clipVariants));
+                results.Add((name, viewpoint, clipJson));
             }
 
             return results;
         }
 
         /// <summary>
-        /// Produces several plausible SetClippingPlanes JSON encodings for
-        /// the same &lt;clipplaneset&gt;, most-likely-correct first, all
-        /// sharing the confirmed top-level shape
-        /// ({"Type":"ClipPlaneSet","Version":1,"Planes":[...],"Linked":bool,"Enabled":bool})
-        /// but differing in how each entry of "Planes" is encoded. Disabled
-        /// clipplaneset (or none at all) still returns one variant - an
-        /// empty, disabled ClipPlaneSet, needed on every viewpoint so clip
-        /// state doesn't leak from whichever viewpoint was captured
-        /// previously in the same run.
+        /// Builds the SetClippingPlanes JSON for a &lt;clipplaneset&gt;,
+        /// using the schema confirmed directly from a real
+        /// GetClippingPlanes() call made on a view with a clip plane pair
+        /// manually enabled through Navisworks' own Sectioning tools:
+        /// {"Type":"ClipPlaneSet","Version":1,"Planes":[{"Type":"ClipPlane",
+        /// "Version":1,"Normal":[0,0,-1],"Distance":-65.18...,"Enabled":true},
+        /// ...],"Linked":false,"Enabled":true} - notably "Normal" is a plain
+        /// [X,Y,Z] array (not an {"X":..,"Y":..,"Z":..} object, which is
+        /// what every earlier guess used and which SetClippingPlanes
+        /// rejected outright regardless of the rest of the shape), each
+        /// plane object itself also carries its own "Type"/"Version", and
+        /// only the *enabled* planes appear in "Planes" at all - disabled
+        /// ones aren't included as inactive entries.
         /// </summary>
-        private static List<(string Label, string Json)> BuildClipPlaneJsonVariants(XElement clipplaneset)
+        private static string BuildClipPlaneJson(XElement clipplaneset)
         {
             var enabled = clipplaneset != null && (string)clipplaneset.Attribute("enabled") == "1";
             var linked = clipplaneset != null && (string)clipplaneset.Attribute("linked") == "1";
@@ -156,6 +155,8 @@ namespace NavisTreeExporter.Core
                 {
                     foreach (var clipplane in clipplanesElement.Elements("clipplane"))
                     {
+                        if ((string)clipplane.Attribute("state") != "enabled") continue;
+
                         var planeElement = clipplane.Element("plane");
                         if (planeElement == null) continue;
 
@@ -169,44 +170,14 @@ namespace NavisTreeExporter.Core
                             nz = ParseDouble(normalElement.Attribute("z"));
                         }
 
-                        var planeEnabled = (string)clipplane.Attribute("state") == "enabled";
-                        var alignment = (string)clipplane.Attribute("alignment") ?? "";
-
-                        planes.Add(new PlaneData(nx, ny, nz, distance, planeEnabled, alignment));
+                        planes.Add(new PlaneData(nx, ny, nz, distance));
                     }
                 }
             }
 
-            var variants = new List<(string, string)>();
-
-            if (!enabled || planes.Count == 0)
-            {
-                variants.Add(("disabled", BuildTopLevel(false, linked, "")));
-                return variants;
-            }
-
-            var enabledOnly = new List<PlaneData>();
-            foreach (var p in planes)
-            {
-                if (p.Enabled) enabledOnly.Add(p);
-            }
-
-            // 1. Flat: {"Normal":{...},"Distance":n,"Enabled":bool} - all 6 planes.
-            variants.Add(("flat-all6", BuildTopLevel(true, linked, EncodePlanesFlat(planes, includeAll: true))));
-            // 2. Flat, only the actually-enabled planes (omit the 4 inactive ones entirely).
-            variants.Add(("flat-enabledOnly", BuildTopLevel(true, linked, EncodePlanesFlat(enabledOnly, includeAll: true))));
-            // 3. Nested "Plane" sub-object, mirroring the XML's own
-            //    <clipplane><plane distance=".."><vec3f/></plane></clipplane>
-            //    nesting - all 6 planes.
-            variants.Add(("nested-all6", BuildTopLevel(true, linked, EncodePlanesNested(planes))));
-            // 4. Nested, only enabled planes.
-            variants.Add(("nested-enabledOnly", BuildTopLevel(true, linked, EncodePlanesNested(enabledOnly))));
-            // 5. Flat but "State" as a string ("enabled"/"default") instead
-            //    of an "Enabled" bool, matching the XML attribute literally -
-            //    all 6 planes.
-            variants.Add(("flat-state-all6", BuildTopLevel(true, linked, EncodePlanesFlatState(planes))));
-
-            return variants;
+            return planes.Count == 0
+                ? BuildTopLevel(false, linked, "")
+                : BuildTopLevel(true, linked, EncodePlanes(planes));
         }
 
         private static string BuildTopLevel(bool enabled, bool linked, string planesJson)
@@ -216,44 +187,16 @@ namespace NavisTreeExporter.Core
                 + "\"Enabled\":" + (enabled ? "true" : "false") + "}";
         }
 
-        private static string EncodePlanesFlat(List<PlaneData> planes, bool includeAll)
+        private static string EncodePlanes(List<PlaneData> planes)
         {
             var inv = CultureInfo.InvariantCulture;
             var sb = new System.Text.StringBuilder();
             foreach (var p in planes)
             {
                 if (sb.Length > 0) sb.Append(",");
-                sb.Append("{\"Normal\":{\"X\":" + p.Nx.ToString(inv) + ",\"Y\":" + p.Ny.ToString(inv) + ",\"Z\":" + p.Nz.ToString(inv) + "},"
-                    + "\"Distance\":" + p.Distance.ToString(inv) + ","
-                    + "\"Enabled\":" + (p.Enabled ? "true" : "false") + "}");
-            }
-            return sb.ToString();
-        }
-
-        private static string EncodePlanesNested(List<PlaneData> planes)
-        {
-            var inv = CultureInfo.InvariantCulture;
-            var sb = new System.Text.StringBuilder();
-            foreach (var p in planes)
-            {
-                if (sb.Length > 0) sb.Append(",");
-                sb.Append("{\"Enabled\":" + (p.Enabled ? "true" : "false") + ","
-                    + "\"Plane\":{\"Normal\":{\"X\":" + p.Nx.ToString(inv) + ",\"Y\":" + p.Ny.ToString(inv) + ",\"Z\":" + p.Nz.ToString(inv) + "},"
-                    + "\"Distance\":" + p.Distance.ToString(inv) + "}}");
-            }
-            return sb.ToString();
-        }
-
-        private static string EncodePlanesFlatState(List<PlaneData> planes)
-        {
-            var inv = CultureInfo.InvariantCulture;
-            var sb = new System.Text.StringBuilder();
-            foreach (var p in planes)
-            {
-                if (sb.Length > 0) sb.Append(",");
-                sb.Append("{\"Normal\":{\"X\":" + p.Nx.ToString(inv) + ",\"Y\":" + p.Ny.ToString(inv) + ",\"Z\":" + p.Nz.ToString(inv) + "},"
-                    + "\"Distance\":" + p.Distance.ToString(inv) + ","
-                    + "\"State\":\"" + (p.Enabled ? "enabled" : "default") + "\"}");
+                sb.Append("{\"Type\":\"ClipPlane\",\"Version\":1,\"Normal\":["
+                    + p.Nx.ToString(inv) + "," + p.Ny.ToString(inv) + "," + p.Nz.ToString(inv) + "],"
+                    + "\"Distance\":" + p.Distance.ToString(inv) + ",\"Enabled\":true}");
             }
             return sb.ToString();
         }
