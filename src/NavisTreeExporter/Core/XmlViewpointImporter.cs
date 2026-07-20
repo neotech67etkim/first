@@ -32,29 +32,29 @@ namespace NavisTreeExporter.Core
     /// but - like the rest of this project - is still unverified against a
     /// real build/run.
     ///
-    /// NOTE: clip plane (&lt;clipplaneset&gt;) reconstruction is the least
-    /// confident part of this file. There's no directly-documented .NET API
-    /// for it either - the closest found is View.GetClippingPlanes()/
-    /// SetClippingPlanes(string json) taking a JSON-serialized clip plane
-    /// description (confirmed to exist via Autodesk forum posts showing a
-    /// "ClipPlaneSet"/"OrientedBox3D" JSON example for section-box
-    /// clipping), which is what BuildClipPlanesJson below constructs. The
-    /// exact JSON key names/casing are a best-effort guess by analogy with
-    /// that example and Rotation3D's own A/B/C/D property names, not
-    /// confirmed against real output - likely to need adjustment from a
-    /// real run. A real exported file has 6 named half-space planes
-    /// (top/bottom/front/back/left/right, only some "enabled" - the rest
-    /// "default"/inactive) in the box's own rotated local frame rather
-    /// than a world-space box, converted into local min/max here using the
-    /// plane semantics worked out from a real sample (a viewpoint with
-    /// only top+bottom "enabled" turned out to be a thin horizontal slice
-    /// of one floor/deck, which only makes sense if the kept region is
-    /// where dot(Normal, Point) &gt; Distance for each enabled plane).
+    /// NOTE: clip plane (&lt;clipplaneset&gt;) reconstruction uses
+    /// View.SetClippingPlanes(string json) - confirmed to exist and take a
+    /// JSON-serialized clip plane description, but not documented anywhere
+    /// found. A first attempt guessed an "OrientedBox" wrapper (by analogy
+    /// with an Autodesk forum post about section-box clipping) and was
+    /// rejected outright by a real SetClippingPlanes call. Calling
+    /// View.GetClippingPlanes() on a real (disabled) view instead revealed
+    /// the actual schema directly:
+    /// {"Type":"ClipPlaneSet","Version":1,"Planes":[],"Linked":false,"Enabled":false}
+    /// - a flat "Planes" array plus top-level Linked/Enabled, matching the
+    /// XML's own &lt;clipplaneset linked="" enabled="" mode="planes"&gt;
+    /// almost exactly. BuildClipPlanesJson below builds that same shape
+    /// directly from the XML's 6 named half-space planes
+    /// (top/bottom/front/back/left/right, each with its own enabled
+    /// state), passing each plane's normal/distance through unchanged
+    /// (no box-coordinate conversion needed once the real "Planes" mode
+    /// schema was known). The individual plane object's own key names
+    /// ("Normal"/"Distance"/"Enabled") are still a best-effort guess by
+    /// analogy with the confirmed top-level schema, not confirmed against
+    /// a real enabled clip - the next thing to check on a real run.
     /// </summary>
     public static class XmlViewpointImporter
     {
-        private const double UnboundedExtent = 1000000;
-
         public static List<(string Name, Viewpoint Viewpoint, string ClipPlanesJson)> Load(Document document, string xmlPath)
         {
             var results = new List<(string, Viewpoint, string)>();
@@ -118,57 +118,35 @@ namespace NavisTreeExporter.Core
 
         /// <summary>
         /// Builds the JSON for View.SetClippingPlanes from a &lt;clipplaneset&gt;
-        /// element, or the "disabled" JSON if that element is missing/not
-        /// enabled - every viewpoint needs an explicit disable, not just
-        /// the ones without clipping, since clip state is set on the
-        /// document's active view and would otherwise leak from whichever
-        /// viewpoint was captured previously in the same run.
+        /// element, matching the real schema confirmed via
+        /// View.GetClippingPlanes() on a real (disabled) view:
+        /// {"Type":"ClipPlaneSet","Version":1,"Planes":[],"Linked":false,"Enabled":false}
+        /// Every viewpoint gets an explicit JSON (disabled if the XML has
+        /// no enabled clipplaneset), not just the ones with clipping, since
+        /// clip state lives on the document's active view and would
+        /// otherwise leak from whichever viewpoint was captured previously
+        /// in the same run.
         /// </summary>
         private static string BuildClipPlanesJson(XElement clipplaneset)
         {
             var enabled = clipplaneset != null && (string)clipplaneset.Attribute("enabled") == "1";
+            var linked = clipplaneset != null && (string)clipplaneset.Attribute("linked") == "1";
+            var inv = CultureInfo.InvariantCulture;
 
-            double minX = -UnboundedExtent, maxX = UnboundedExtent;
-            double minY = -UnboundedExtent, maxY = UnboundedExtent;
-            double minZ = -UnboundedExtent, maxZ = UnboundedExtent;
-            double ra = 0, rb = 0, rc = 0, rd = 1;
-
+            var planes = new System.Text.StringBuilder();
             if (enabled)
             {
-                var rotationElement = clipplaneset.Element("box-rotation")?.Element("rotation")?.Element("quaternion");
-                if (rotationElement != null)
-                {
-                    ra = ParseDouble(rotationElement.Attribute("a"));
-                    rb = ParseDouble(rotationElement.Attribute("b"));
-                    rc = ParseDouble(rotationElement.Attribute("c"));
-                    rd = ParseDouble(rotationElement.Attribute("d"));
-                }
-
                 var clipplanesElement = clipplaneset.Element("clipplanes");
                 if (clipplanesElement != null)
                 {
                     foreach (var clipplane in clipplanesElement.Elements("clipplane"))
                     {
-                        if ((string)clipplane.Attribute("state") != "enabled") continue;
-
                         var planeElement = clipplane.Element("plane");
                         if (planeElement == null) continue;
-                        var distance = ParseDouble(planeElement.Attribute("distance"));
 
-                        // The plane equation is dot(Normal, P) = distance, not
-                        // "distance is the coordinate" - for a normal pointing
-                        // in the negative direction on its axis (seen on a
-                        // real sample: "top" had normal (0,0,-1)), the actual
-                        // boundary coordinate is distance * normal-component-
-                        // on-that-axis (which flips the sign when that
-                        // component is -1). Missing this produced an inverted
-                        // (min > max) box that Navisworks rejected outright
-                        // ("ArgumentException: Failed to set clipping planes")
-                        // on a real run.
+                        var distance = ParseDouble(planeElement.Attribute("distance"));
                         var normalElement = planeElement.Element("vec3f");
-                        var nx = 1.0;
-                        var ny = 1.0;
-                        var nz = 1.0;
+                        double nx = 0, ny = 0, nz = 0;
                         if (normalElement != null)
                         {
                             nx = ParseDouble(normalElement.Attribute("x"));
@@ -176,38 +154,19 @@ namespace NavisTreeExporter.Core
                             nz = ParseDouble(normalElement.Attribute("z"));
                         }
 
-                        switch ((string)clipplane.Attribute("alignment"))
-                        {
-                            case "top": maxZ = distance * (nz != 0 ? nz : 1); break;
-                            case "bottom": minZ = distance * (nz != 0 ? nz : 1); break;
-                            case "front": maxY = distance * (ny != 0 ? ny : 1); break;
-                            case "back": minY = distance * (ny != 0 ? ny : 1); break;
-                            case "right": maxX = distance * (nx != 0 ? nx : 1); break;
-                            case "left": minX = distance * (nx != 0 ? nx : 1); break;
-                        }
+                        var planeEnabled = (string)clipplane.Attribute("state") == "enabled";
+
+                        if (planes.Length > 0) planes.Append(",");
+                        planes.Append("{\"Normal\":{\"X\":" + nx.ToString(inv) + ",\"Y\":" + ny.ToString(inv) + ",\"Z\":" + nz.ToString(inv) + "},"
+                            + "\"Distance\":" + distance.ToString(inv) + ","
+                            + "\"Enabled\":" + (planeEnabled ? "true" : "false") + "}");
                     }
                 }
-
-                // Safety net: if, despite the above, an axis still ended up
-                // inverted (min > max) - e.g. an alignment/normal
-                // combination not seen in the one real sample this was
-                // built against - swap it rather than sending Navisworks an
-                // invalid box it will reject outright.
-                if (minX > maxX) { var t = minX; minX = maxX; maxX = t; }
-                if (minY > maxY) { var t = minY; minY = maxY; maxY = t; }
-                if (minZ > maxZ) { var t = minZ; minZ = maxZ; maxZ = t; }
             }
 
-            var inv = CultureInfo.InvariantCulture;
-            return "{\"Type\":\"ClipPlaneSet\",\"Version\":1,\"OrientedBox\":{"
-                + "\"Type\":\"OrientedBox3D\","
-                + "\"Enabled\":" + (enabled ? "true" : "false") + ","
-                + "\"Box\":{"
-                + "\"Min\":{\"X\":" + minX.ToString(inv) + ",\"Y\":" + minY.ToString(inv) + ",\"Z\":" + minZ.ToString(inv) + "},"
-                + "\"Max\":{\"X\":" + maxX.ToString(inv) + ",\"Y\":" + maxY.ToString(inv) + ",\"Z\":" + maxZ.ToString(inv) + "}"
-                + "},"
-                + "\"Rotation\":{\"X\":" + ra.ToString(inv) + ",\"Y\":" + rb.ToString(inv) + ",\"Z\":" + rc.ToString(inv) + ",\"W\":" + rd.ToString(inv) + "}"
-                + "}}";
+            return "{\"Type\":\"ClipPlaneSet\",\"Version\":1,\"Planes\":[" + planes + "],"
+                + "\"Linked\":" + (linked ? "true" : "false") + ","
+                + "\"Enabled\":" + (enabled ? "true" : "false") + "}";
         }
 
         private static double ParseDouble(XAttribute attribute)
